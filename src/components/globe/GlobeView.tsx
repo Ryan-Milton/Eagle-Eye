@@ -1,8 +1,8 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import * as THREE from 'three'
 import { ENTITIES, ARC_PAIRS } from '@/data'
-import { latLonToVec3 } from '@/lib/utils'
-import { cn } from '@/lib/utils'
+import { latLonToVec3, cn } from '@/lib/utils'
+import { buildEarthTexture } from './buildEarthTexture'
 import type { Entity, LayerId } from '@/types'
 
 const NODE_COLORS: Record<Entity['type'], number> = {
@@ -10,47 +10,6 @@ const NODE_COLORS: Record<Entity['type'], number> = {
   vehicle:  0xeab308,
   location: 0x22c55e,
   signal:   0xe8640a,
-}
-
-function buildEarthTexture(): THREE.CanvasTexture {
-  const TX = 2048, TY = 1024
-  const canvas = document.createElement('canvas')
-  canvas.width = TX; canvas.height = TY
-  const ctx = canvas.getContext('2d')!
-
-  ctx.fillStyle = '#080810'
-  ctx.fillRect(0, 0, TX, TY)
-
-  function ll(lat: number, lon: number): [number, number] {
-    return [(lon + 180) / 360 * TX, (90 - lat) / 180 * TY]
-  }
-  function land(pts: [number, number][]) {
-    ctx.beginPath()
-    ctx.moveTo(...ll(pts[0][0], pts[0][1]))
-    pts.slice(1).forEach(p => ctx.lineTo(...ll(p[0], p[1])))
-    ctx.closePath()
-    ctx.fillStyle = '#1c1c20'; ctx.fill()
-    ctx.strokeStyle = '#2a2a30'; ctx.lineWidth = 1.2; ctx.stroke()
-  }
-
-  land([[70,-140],[72,-90],[68,-70],[60,-65],[50,-55],[45,-60],[40,-70],[35,-75],[30,-80],[25,-90],[20,-87],[15,-85],[20,-105],[25,-110],[22,-110],[32,-117],[38,-122],[49,-124],[60,-137],[65,-145]])
-  land([[12,-70],[12,-62],[8,-60],[5,-52],[0,-50],[-10,-35],[-20,-40],[-30,-50],[-40,-62],[-50,-68],[-55,-64],[-55,-67],[-45,-75],[-35,-72],[-20,-70],[-10,-75],[0,-78],[10,-75]])
-  land([[71,28],[71,15],[63,5],[58,5],[55,8],[55,15],[50,14],[47,16],[45,13],[43,18],[40,18],[36,14],[36,-5],[43,-8],[48,-2],[50,-5],[51,2],[58,-5],[63,-20],[65,-18],[68,20]])
-  land([[37,10],[37,36],[30,32],[20,38],[12,42],[10,44],[0,42],[-10,40],[-20,35],[-30,30],[-34,26],[-34,18],[-25,14],[-15,12],[-5,8],[5,2],[4,-5],[10,-15],[15,-17],[20,-17],[28,10]])
-  land([[71,28],[75,80],[73,130],[65,140],[60,140],[55,135],[50,140],[45,135],[38,140],[35,136],[22,114],[18,110],[10,100],[1,104],[5,100],[15,73],[8,77],[20,60],[30,48],[37,36],[37,29],[40,26],[50,28],[55,37],[65,55],[71,60]])
-  land([[-14,126],[-14,136],[-17,140],[-22,150],[-28,154],[-34,151],[-38,147],[-38,140],[-32,133],[-32,125],[-26,114],[-20,114]])
-
-  ctx.strokeStyle = 'rgba(63,63,70,0.35)'; ctx.lineWidth = 0.7
-  for (let lat = -90; lat <= 90; lat += 15) {
-    const y = (90 - lat) / 180 * TY
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(TX, y); ctx.stroke()
-  }
-  for (let lon = -180; lon <= 180; lon += 15) {
-    const x = (lon + 180) / 360 * TX
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, TY); ctx.stroke()
-  }
-
-  return new THREE.CanvasTexture(canvas)
 }
 
 const LAYERS: { id: LayerId; label: string }[] = [
