@@ -5,6 +5,13 @@ import { latLonToVec3, cn } from '@/lib/utils'
 import { buildEarthTexture } from './buildEarthTexture'
 import type { Entity, LayerId } from '@/types'
 
+const HOME_ZOOM = 4.65
+const HOME_RX = 0.25
+const HOME_RY = 0
+const MIN_ZOOM = 1.3
+const MAX_ZOOM = 5.5
+const PAUSE_MS = 10_000
+
 const NODE_COLORS: Record<Entity['type'], number> = {
   person:   0x3b82f6,
   vehicle:  0xeab308,
@@ -26,11 +33,15 @@ interface GlobeViewProps {
 export function GlobeView({ onEntityFocus }: GlobeViewProps) {
   const mountRef  = useRef<HTMLDivElement>(null)
   const stateRef  = useRef({
-    rx: 0.25, ry: 0, trx: 0.25, try_: 0,
-    zoom: 2.9, tzoom: 2.9,
+    rx: HOME_RX, ry: 0, trx: HOME_RX, try_: 0,
+    zoom: HOME_ZOOM, tzoom: HOME_ZOOM,
     drag: false, px: 0, py: 0,
     frame: 0,
     rafId: 0,
+    autoRotOffset: 0,
+    autoRotating: true,
+    pauseUntil: 0,
+    pausedPermanently: false,
   })
   const layerRefs = useRef<Record<LayerId, THREE.Object3D | null>>({
     grid: null, arcs: null, nodes: null, heat: null,
@@ -40,11 +51,15 @@ export function GlobeView({ onEntityFocus }: GlobeViewProps) {
     new Set(['grid', 'arcs', 'nodes'])
   )
 
-  // Sync entity focus → rotation target
+  // Sync entity focus → rotation target + pause rotation
   useEffect(() => {
     if (!onEntityFocus) return
-    stateRef.current.trx = -onEntityFocus.lat * 0.014
-    stateRef.current.try_ = -onEntityFocus.lon * 0.014
+    const s = stateRef.current
+    s.trx = -onEntityFocus.lat * 0.014
+    s.try_ = -onEntityFocus.lon * 0.014 - s.autoRotOffset
+    s.autoRotating = false
+    s.pauseUntil = Date.now() + PAUSE_MS
+    s.pausedPermanently = false
   }, [onEntityFocus])
 
   const toggleLayer = useCallback((id: LayerId) => {
@@ -58,13 +73,17 @@ export function GlobeView({ onEntityFocus }: GlobeViewProps) {
   }, [])
 
   const zoom = useCallback((delta: number) => {
-    stateRef.current.tzoom = Math.max(1.3, Math.min(5.5, stateRef.current.tzoom + delta))
+    stateRef.current.tzoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, stateRef.current.tzoom + delta))
   }, [])
 
   const resetView = useCallback(() => {
-    stateRef.current.tzoom = 2.9
-    stateRef.current.trx   = 0.25
-    stateRef.current.try_  = 0
+    const s = stateRef.current
+    s.tzoom = HOME_ZOOM
+    s.trx = HOME_RX
+    s.try_ = HOME_RY - s.autoRotOffset
+    s.autoRotating = true
+    s.pauseUntil = 0
+    s.pausedPermanently = false
   }, [])
 
   useEffect(() => {
@@ -82,7 +101,7 @@ export function GlobeView({ onEntityFocus }: GlobeViewProps) {
     // ── Scene / Camera ────────────────────────────────────
     const scene  = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera(38, el.clientWidth / el.clientHeight, 0.1, 1000)
-    camera.position.z = 2.9
+    camera.position.z = HOME_ZOOM
 
     // ── Globe group ───────────────────────────────────────
     const gGroup = new THREE.Group()
@@ -175,7 +194,12 @@ export function GlobeView({ onEntityFocus }: GlobeViewProps) {
     // ── Pointer events ────────────────────────────────────
     const canvas = renderer.domElement
 
-    const onMouseDown = (e: MouseEvent) => { s.drag = true; s.px = e.clientX; s.py = e.clientY }
+    const onMouseDown = (e: MouseEvent) => {
+      s.drag = true; s.px = e.clientX; s.py = e.clientY
+      s.autoRotating = false
+      s.pausedPermanently = false
+      s.pauseUntil = Date.now() + PAUSE_MS
+    }
     const onMouseMove = (e: MouseEvent) => {
       if (s.drag) {
         s.try_ += (e.clientX - s.px) * 0.007
@@ -188,27 +212,72 @@ export function GlobeView({ onEntityFocus }: GlobeViewProps) {
       const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1
       const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1
       const lat = (ny * 90 + s.rx * 57.3).toFixed(2)
-      const lon = (nx * 180 - s.ry * 57.3).toFixed(2)
+      const lon = (nx * 180 - (s.ry + s.autoRotOffset) * 57.3).toFixed(2)
       setCoords(`${Math.abs(+lat)}°${+lat >= 0 ? 'N' : 'S'}  ·  ${Math.abs(+lon % 360)}°${+lon >= 0 ? 'E' : 'W'}  ·  ${(s.zoom * 12000).toFixed(0)} km`)
     }
-    const onMouseUp  = () => { s.drag = false }
-    const onWheel    = (e: WheelEvent) => { s.tzoom = Math.max(1.3, Math.min(5.5, s.tzoom + e.deltaY * 0.002)) }
+    const onMouseUp = () => {
+      s.drag = false
+      if (!s.pausedPermanently) {
+        s.pauseUntil = Date.now() + PAUSE_MS
+      }
+    }
+    const onWheel = (e: WheelEvent) => {
+      s.tzoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, s.tzoom + e.deltaY * 0.002))
+    }
+    const onDblClick = (e: MouseEvent) => {
+      s.autoRotating = false
+      s.pauseUntil = 0
+      s.pausedPermanently = true
+      s.tzoom = MIN_ZOOM
+
+      // Raycast to center globe on the clicked point
+      const rect = canvas.getBoundingClientRect()
+      const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1
+      const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1
+      const raycaster = new THREE.Raycaster()
+      raycaster.setFromCamera(new THREE.Vector2(nx, ny), camera)
+      const hits = raycaster.intersectObject(globeMesh)
+      if (hits.length > 0) {
+        const local = gGroup.worldToLocal(hits[0].point.clone())
+        const lat = Math.asin(local.y / local.length()) * (180 / Math.PI)
+        const lon = Math.atan2(local.z, -local.x) * (180 / Math.PI) - 180
+        s.trx = -lat * 0.014
+        s.try_ = -lon * 0.014 - s.autoRotOffset
+      }
+    }
 
     canvas.addEventListener('mousedown', onMouseDown)
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup',   onMouseUp)
     canvas.addEventListener('wheel',     onWheel, { passive: true })
+    canvas.addEventListener('dblclick',  onDblClick)
 
     // ── Render loop ───────────────────────────────────────
     function animate() {
       s.rafId = requestAnimationFrame(animate)
       s.frame++
+
+      // Auto-rotation pause/resume
+      const now = Date.now()
+      if (s.pauseUntil > 0 && now >= s.pauseUntil) {
+        s.autoRotating = true
+        s.pauseUntil = 0
+        s.pausedPermanently = false
+        s.trx = HOME_RX
+        s.try_ = HOME_RY - s.autoRotOffset
+        s.tzoom = HOME_ZOOM
+      }
+
+      if (s.autoRotating) {
+        s.autoRotOffset += 0.0006
+      }
+
       s.rx   += (s.trx  - s.rx)   * 0.08
       s.ry   += (s.try_ - s.ry)   * 0.08
       s.zoom += (s.tzoom - s.zoom) * 0.08
 
       gGroup.rotation.x = s.rx
-      gGroup.rotation.y = s.ry + s.frame * 0.0006
+      gGroup.rotation.y = s.ry + s.autoRotOffset
       camera.position.z = s.zoom
 
       pulseArr.forEach(({ pulse, phase }) => {
@@ -240,6 +309,7 @@ export function GlobeView({ onEntityFocus }: GlobeViewProps) {
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup',   onMouseUp)
       canvas.removeEventListener('wheel',     onWheel)
+      canvas.removeEventListener('dblclick',  onDblClick)
       ro.disconnect()
       renderer.dispose()
       el.removeChild(canvas)
