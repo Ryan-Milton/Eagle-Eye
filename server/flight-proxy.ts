@@ -1,7 +1,48 @@
 const FLIGHT_SOURCE = process.env.FLIGHT_SOURCE ?? 'opensky'
-const POLL_INTERVAL = 10_000
+const BASE_POLL_INTERVAL = 30_000 // 30s — 2,880 req/day, well within 4,000 credit budget
+const MAX_POLL_INTERVAL = 300_000 // 5 min max backoff
+
+const OPENSKY_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token'
+const OPENSKY_CLIENT_ID = process.env.OPENSKY_CLIENT_ID ?? ''
+const OPENSKY_CLIENT_SECRET = process.env.OPENSKY_CLIENT_SECRET ?? ''
 
 const clients = new Set<import('bun').ServerWebSocket<unknown>>()
+
+// OAuth2 token cache
+let accessToken: string | null = null
+let tokenExpiresAt = 0
+
+async function getOpenSkyToken(): Promise<string | null> {
+  if (!OPENSKY_CLIENT_ID || !OPENSKY_CLIENT_SECRET) return null
+
+  // Return cached token if still valid (refresh 60s before expiry)
+  if (accessToken && Date.now() < tokenExpiresAt - 60_000) {
+    return accessToken
+  }
+
+  const res = await fetch(OPENSKY_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: OPENSKY_CLIENT_ID,
+      client_secret: OPENSKY_CLIENT_SECRET,
+    }),
+  })
+
+  if (!res.ok) {
+    console.error(`[Flight] OAuth2 token request failed: ${res.status}`)
+    accessToken = null
+    return null
+  }
+
+  const json = await res.json()
+  accessToken = json.access_token
+  // Tokens expire in 30 min per docs; use reported expires_in if available
+  tokenExpiresAt = Date.now() + (json.expires_in ?? 1800) * 1000
+  console.log(`[Flight] OAuth2 token acquired, expires in ${json.expires_in ?? 1800}s`)
+  return accessToken
+}
 
 interface FlightData {
   icao24: string
@@ -39,12 +80,30 @@ function classifyFlight(callsign: string): string {
   return 'other'
 }
 
-async function fetchOpenSky(): Promise<FlightData[]> {
+async function fetchOpenSky(): Promise<FlightData[] | null> {
+  const token = await getOpenSkyToken()
+  const headers: Record<string, string> = {}
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
   const url = 'https://opensky-network.org/api/states/all'
-  const res = await fetch(url)
+  const res = await fetch(url, { headers })
+
+  if (res.status === 401 && token) {
+    // Token expired — clear and retry once
+    console.warn('[Flight] OpenSky 401 — refreshing token')
+    accessToken = null
+    tokenExpiresAt = 0
+    return fetchOpenSky()
+  }
+  if (res.status === 429) {
+    console.warn(`[Flight] OpenSky 429 — backing off`)
+    return null // signal rate-limited
+  }
   if (!res.ok) {
     console.error(`[Flight] OpenSky HTTP ${res.status}`)
-    return []
+    return null
   }
   const json = await res.json() as { time: number; states: unknown[][] | null }
   if (!json.states) return []
@@ -82,7 +141,7 @@ async function fetchOpenSky(): Promise<FlightData[]> {
   return flights
 }
 
-async function fetchAdsbExchange(): Promise<FlightData[]> {
+async function fetchAdsbExchange(): Promise<FlightData[] | null> {
   const apiKey = process.env.RAPIDAPI_KEY
   if (!apiKey) {
     console.error('[Flight] Missing RAPIDAPI_KEY for ADS-B Exchange')
@@ -97,9 +156,13 @@ async function fetchAdsbExchange(): Promise<FlightData[]> {
     `https://adsbexchange-com1.p.rapidapi.com/v2/lat/${lat}/lon/${lon}/dist/${dist}/`,
     { headers: { 'X-RapidAPI-Key': apiKey, 'X-RapidAPI-Host': 'adsbexchange-com1.p.rapidapi.com' } },
   )
+  if (res.status === 429) {
+    console.warn(`[Flight] ADS-B Exchange 429 — backing off`)
+    return null
+  }
   if (!res.ok) {
     console.error(`[Flight] ADS-B Exchange HTTP ${res.status}`)
-    return []
+    return null
   }
   const json = await res.json() as { ac?: Array<Record<string, unknown>> }
   if (!json.ac) return []
@@ -136,34 +199,72 @@ async function fetchAdsbExchange(): Promise<FlightData[]> {
 }
 
 let pollCount = 0
+let currentInterval = BASE_POLL_INTERVAL
+let consecutiveFailures = 0
+let lastGoodPayload: string | null = null
+let pollTimer: ReturnType<typeof setTimeout> | null = null
 
 async function poll() {
+  if (clients.size === 0) {
+    pollTimer = setTimeout(poll, currentInterval)
+    return
+  }
+
   try {
     const flights = FLIGHT_SOURCE === 'adsb'
       ? await fetchAdsbExchange()
       : await fetchOpenSky()
 
-    const payload = JSON.stringify({
-      type: 'flights',
-      flights,
-      timestamp: Date.now(),
-    })
+    if (flights === null) {
+      // Rate-limited or error — exponential backoff
+      consecutiveFailures++
+      currentInterval = Math.min(
+        MAX_POLL_INTERVAL,
+        BASE_POLL_INTERVAL * Math.pow(2, consecutiveFailures),
+      )
+      console.warn(`[Flight] Backoff: next poll in ${(currentInterval / 1000).toFixed(0)}s (failure #${consecutiveFailures})`)
 
-    for (const client of clients) {
-      try { client.send(payload) } catch { /* skip */ }
-    }
+      // Send last good data to any new clients so they aren't empty
+      if (lastGoodPayload && clients.size > 0) {
+        for (const client of clients) {
+          try { client.send(lastGoodPayload) } catch { /* skip */ }
+        }
+      }
+    } else {
+      // Success — reset backoff
+      consecutiveFailures = 0
+      currentInterval = BASE_POLL_INTERVAL
 
-    pollCount++
-    if (pollCount % 6 === 0) {
-      console.log(`[Flight] Poll #${pollCount}: ${flights.length} aircraft, ${clients.size} clients`)
+      const payload = JSON.stringify({
+        type: 'flights',
+        flights,
+        timestamp: Date.now(),
+      })
+      lastGoodPayload = payload
+
+      for (const client of clients) {
+        try { client.send(payload) } catch { /* skip */ }
+      }
+
+      pollCount++
+      if (pollCount % 6 === 0) {
+        console.log(`[Flight] Poll #${pollCount}: ${flights.length} aircraft, ${clients.size} clients`)
+      }
     }
   } catch (err) {
     console.error('[Flight] Poll error:', err)
+    consecutiveFailures++
+    currentInterval = Math.min(
+      MAX_POLL_INTERVAL,
+      BASE_POLL_INTERVAL * Math.pow(2, consecutiveFailures),
+    )
   }
+
+  // Schedule next poll with current (possibly backed-off) interval
+  pollTimer = setTimeout(poll, currentInterval)
 }
 
 // Start polling
-setInterval(poll, POLL_INTERVAL)
 poll()
 
 Bun.serve({
@@ -188,3 +289,9 @@ Bun.serve({
 })
 
 console.log(`[Flight] Proxy listening on ws://localhost:4002 (source: ${FLIGHT_SOURCE})`)
+
+if (OPENSKY_CLIENT_ID && OPENSKY_CLIENT_SECRET) {
+  console.log('[Flight] OpenSky OAuth2 credentials configured')
+} else {
+  console.warn('[Flight] OpenSky OAuth2 credentials missing — using anonymous access')
+}
