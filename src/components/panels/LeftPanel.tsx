@@ -77,7 +77,7 @@ interface LeftPanelProps {
 function MasterToggle({ allOn, noneOn, onToggle }: { allOn: boolean; noneOn: boolean; onToggle: () => void }) {
   const indeterminate = !allOn && !noneOn
   return (
-    <button onClick={e => { e.stopPropagation(); onToggle() }} className="px-2 py-1.5 flex-shrink-0">
+    <div role="button" tabIndex={0} onClick={e => { e.stopPropagation(); onToggle() }} className="px-2 py-1.5 flex-shrink-0">
       <span className={cn(
         'inline-flex items-center justify-center w-3 h-3 rounded-sm border transition-all',
         allOn ? 'bg-orange-500 border-orange-500' : indeterminate ? 'bg-zinc-600 border-zinc-600' : 'border-zinc-600',
@@ -93,7 +93,7 @@ function MasterToggle({ allOn, noneOn, onToggle }: { allOn: boolean; noneOn: boo
           </svg>
         )}
       </span>
-    </button>
+    </div>
   )
 }
 

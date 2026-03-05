@@ -1,6 +1,7 @@
-import { useRef, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { CONSTELLATIONS } from '@/data/constellations'
 import { cn } from '@/lib/utils'
+import type { HexdbFlightInfo } from '@/lib/hexdb'
 import type { SatelliteRecord, SatellitePosition, VesselRecord, FlightRecord } from '@/types'
 
 const NAV_STATUS_LABELS: Record<number, string> = {
@@ -41,9 +42,11 @@ interface RightPanelProps {
   position: SatellitePosition | null
   vessel: VesselRecord | null
   flight: FlightRecord | null
+  flightInfo: HexdbFlightInfo
+  flightInfoLoading: boolean
 }
 
-export function RightPanel({ satellite, position, vessel, flight }: RightPanelProps) {
+export function RightPanel({ satellite, position, vessel, flight, flightInfo, flightInfoLoading }: RightPanelProps) {
   const constellation = satellite
     ? CONSTELLATIONS.find(c => c.id === satellite.constellationId)
     : null
@@ -68,6 +71,11 @@ export function RightPanel({ satellite, position, vessel, flight }: RightPanelPr
 
       {flight ? (
         <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
+          {/* Aircraft photo */}
+          {flightInfo.imageUrl && (
+            <AircraftImage url={flightInfo.imageUrl} alt={flight.callsign} />
+          )}
+
           {/* Flight identity section */}
           <div className="px-3.5 py-3 border-b border-zinc-800">
             <div className="font-display text-sm font-bold tracking-wide text-zinc-50">
@@ -86,6 +94,60 @@ export function RightPanel({ satellite, position, vessel, flight }: RightPanelPr
               <div className="font-mono text-[12px] text-zinc-500 mt-1">{flight.originCountry}</div>
             )}
           </div>
+
+          {/* Aircraft info from hexdb */}
+          {flightInfo.aircraft && (
+            <div className="px-3.5 py-3 border-b border-zinc-800">
+              <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">
+                Aircraft
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <DetailRow label="Registration" value={flightInfo.aircraft.Registration} />
+                <DetailRow label="Type" value={flightInfo.aircraft.Type || flightInfo.aircraft.ICAOTypeCode} />
+                <DetailRow label="Manufacturer" value={flightInfo.aircraft.Manufacturer} />
+                <DetailRow label="Owner" value={flightInfo.aircraft.RegisteredOwners} />
+              </div>
+            </div>
+          )}
+
+          {/* Route from hexdb */}
+          {flightInfo.route && (
+            <div className="px-3.5 py-3 border-b border-zinc-800">
+              <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">
+                Route
+              </div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="font-mono text-[13px] text-yellow-400 font-bold">
+                  {flightInfo.route.route}
+                </span>
+              </div>
+              {flightInfo.origin && (
+                <div className="mb-1.5">
+                  <div className="font-mono text-[11px] text-zinc-600 uppercase">Origin</div>
+                  <div className="font-mono text-[12px] text-zinc-300">{flightInfo.origin.airport}</div>
+                  <div className="font-mono text-[11px] text-zinc-500">
+                    {flightInfo.origin.iata}/{flightInfo.origin.icao} — {flightInfo.origin.region_name}, {flightInfo.origin.country_code}
+                  </div>
+                </div>
+              )}
+              {flightInfo.destination && (
+                <div>
+                  <div className="font-mono text-[11px] text-zinc-600 uppercase">Destination</div>
+                  <div className="font-mono text-[12px] text-zinc-300">{flightInfo.destination.airport}</div>
+                  <div className="font-mono text-[11px] text-zinc-500">
+                    {flightInfo.destination.iata}/{flightInfo.destination.icao} — {flightInfo.destination.region_name}, {flightInfo.destination.country_code}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Loading indicator for hexdb data */}
+          {flightInfoLoading && !flightInfo.aircraft && (
+            <div className="px-3.5 py-3 border-b border-zinc-800">
+              <div className="font-mono text-[12px] text-zinc-600 animate-pulse">Loading aircraft data...</div>
+            </div>
+          )}
 
           {/* Current position */}
           <div className="px-3.5 py-3 border-b border-zinc-800">
@@ -258,6 +320,37 @@ export function RightPanel({ satellite, position, vessel, flight }: RightPanelPr
         </div>
       )}
     </aside>
+  )
+}
+
+function AircraftImage({ url, alt }: { url: string; alt: string }) {
+  const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState(false)
+
+  // Reset state when URL changes (new aircraft selected)
+  useEffect(() => {
+    setLoaded(false)
+    setError(false)
+  }, [url])
+
+  if (error) return null
+
+  return (
+    <div className="relative w-full border-b border-zinc-800 bg-zinc-950">
+      {!loaded && (
+        <div className="h-32 flex items-center justify-center">
+          <div className="font-mono text-[11px] text-zinc-600 animate-pulse">Loading image...</div>
+        </div>
+      )}
+      <img
+        src={url}
+        alt={alt}
+        className={cn('w-full object-cover', loaded ? 'block' : 'hidden')}
+        style={{ maxHeight: 160 }}
+        onLoad={() => setLoaded(true)}
+        onError={() => setError(true)}
+      />
+    </div>
   )
 }
 

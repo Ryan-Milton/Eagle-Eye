@@ -4,6 +4,7 @@ import 'mapbox-gl/dist/mapbox-gl.css'
 import { cn } from '@/lib/utils'
 import { CONSTELLATIONS } from '@/data/constellations'
 import { displayRadius } from '@/lib/propagation-kernel'
+import type { PositionHistory } from '@/lib/position-history'
 import type { ConstellationId, SatellitePosition, VesselRecord, FlightRecord, VesselType, FlightType } from '@/types'
 
 type MapStyle = 'dark' | 'light'
@@ -24,6 +25,8 @@ interface MapboxGlobeViewProps {
   onVesselClick: (mmsi: number | null) => void
   selectedIcao: string | null
   onFlightClick: (icao: string | null) => void
+  flightHistory: PositionHistory<string>
+  vesselHistory: PositionHistory<number>
 }
 
 const STYLES: Record<MapStyle, string> = {
@@ -133,6 +136,38 @@ function buildFlightGeoJSON(
   return { type: 'FeatureCollection', features }
 }
 
+function buildTrailGeoJSON(
+  flightHistory: PositionHistory<string>,
+  vesselHistory: PositionHistory<number>,
+  selectedIcao: string | null,
+  selectedMmsi: number | null,
+): GeoJSONFeatureCollection {
+  const features: GeoJSON.Feature<GeoJSON.Point>[] = []
+
+  let trail: { lon: number; lat: number }[] = []
+  let color = '#ffffff'
+
+  if (selectedIcao) {
+    trail = flightHistory.getTrail(selectedIcao)
+    color = FLIGHT_COLOR
+  } else if (selectedMmsi) {
+    trail = vesselHistory.getTrail(selectedMmsi)
+    color = VESSEL_COLOR
+  }
+
+  for (let i = 0; i < trail.length; i++) {
+    const pt = trail[i]
+    const opacity = trail.length > 1 ? 0.3 + 0.7 * (i / (trail.length - 1)) : 1
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [pt.lon, pt.lat] },
+      properties: { color, opacity },
+    })
+  }
+
+  return { type: 'FeatureCollection', features }
+}
+
 /** Create a small white filled-circle image for use as an SDF icon */
 function createDotImage(size = 16): ImageData {
   const canvas = document.createElement('canvas')
@@ -147,10 +182,29 @@ function createDotImage(size = 16): ImageData {
 }
 
 function addEntityLayers(map: mapboxgl.Map) {
+  // Guard against double-invocation (React strict mode)
+  if (map.getSource('entity-trail')) return
+
   // Add SDF dot icon for satellite symbol layer
   if (!map.hasImage('sat-dot')) {
     map.addImage('sat-dot', createDotImage(16), { sdf: true })
   }
+
+  // Trail source + layer (rendered below entity layers)
+  map.addSource('entity-trail', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+  })
+  map.addLayer({
+    id: 'entity-trail-layer',
+    type: 'circle',
+    source: 'entity-trail',
+    paint: {
+      'circle-radius': 2.5,
+      'circle-color': ['get', 'color'],
+      'circle-opacity': ['get', 'opacity'],
+    },
+  })
 
   // Satellites source + symbol layer (elevated via symbol-z-offset)
   map.addSource('satellites', {
@@ -229,6 +283,8 @@ export function MapboxGlobeView({
   onVesselClick,
   selectedIcao,
   onFlightClick,
+  flightHistory,
+  vesselHistory,
 }: MapboxGlobeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
@@ -359,6 +415,14 @@ export function MapboxGlobeView({
     if (src) src.setData(buildFlightGeoJSON(flights, selectedIcao, flightTypeToggles))
   }, [flightVersion, flights, selectedIcao, flightTypeToggles])
 
+  // Sync trail data
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+    const src = map.getSource('entity-trail') as mapboxgl.GeoJSONSource | undefined
+    if (src) src.setData(buildTrailGeoJSON(flightHistory, vesselHistory, selectedIcao, selectedMmsi))
+  }, [selectedIcao, selectedMmsi, flightVersion, vesselVersion, flightHistory, vesselHistory])
+
   // Also sync data when layers become ready after style change
   useEffect(() => {
     const map = mapRef.current
@@ -371,11 +435,13 @@ export function MapboxGlobeView({
       if (vesselSrc) vesselSrc.setData(buildVesselGeoJSON(vessels, selectedMmsi, vesselTypeToggles))
       const flightSrc = map.getSource('flights') as mapboxgl.GeoJSONSource | undefined
       if (flightSrc) flightSrc.setData(buildFlightGeoJSON(flights, selectedIcao, flightTypeToggles))
+      const trailSrc = map.getSource('entity-trail') as mapboxgl.GeoJSONSource | undefined
+      if (trailSrc) trailSrc.setData(buildTrailGeoJSON(flightHistory, vesselHistory, selectedIcao, selectedMmsi))
     }
 
     map.on('style.load', syncAll)
     return () => { map.off('style.load', syncAll) }
-  }, [toggles, getPositions, selectedSatId, version, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles])
+  }, [toggles, getPositions, selectedSatId, version, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory])
 
   return (
     <div className="fixed top-[46px] left-64 right-[272px] bottom-[34px]">

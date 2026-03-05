@@ -10,6 +10,7 @@ import { useFlightTypeToggles } from '@/hooks/useFlightTypeToggles'
 import { useSatellites } from '@/hooks/useSatellites'
 import { useVessels } from '@/hooks/useVessels'
 import { useFlights } from '@/hooks/useFlights'
+import { useFlightInfo } from '@/hooks/useFlightInfo'
 import type { NavView } from '@/types'
 
 export default function App() {
@@ -22,8 +23,10 @@ export default function App() {
   const { toggles: vesselTypeToggles, toggle: toggleVesselType, enableAll: enableAllVesselTypes, disableAll: disableAllVesselTypes } = useVesselTypeToggles()
   const { toggles: flightTypeToggles, toggle: toggleFlightType, enableAll: enableAllFlightTypes, disableAll: disableAllFlightTypes } = useFlightTypeToggles()
   const { version, loading, getPositions, getSatellites, getStats } = useSatellites(toggles)
-  const { version: vesselVersion, vessels, connected: vesselConnected, vesselCount } = useVessels(true)
-  const { version: flightVersion, flights, connected: flightConnected, flightCount } = useFlights(true)
+  const { version: vesselVersion, vessels, connected: vesselConnected, vesselCount, vesselHistory } = useVessels(true)
+  const { version: flightVersion, flights, connected: flightConnected, flightCount, flightHistory } = useFlights(true)
+  const selectedFlight = selectedIcao ? flights.get(selectedIcao) ?? null : null
+  const { info: flightInfo, loading: flightInfoLoading } = useFlightInfo(selectedIcao, selectedFlight?.callsign ?? null)
 
   // Mutual exclusion: selecting one type clears the others
   const handleSelectSatellite = useCallback((noradId: number | null) => {
@@ -43,7 +46,6 @@ export default function App() {
 
   // Find selected records
   const selectedVessel = selectedMmsi ? vessels.get(selectedMmsi) ?? null : null
-  const selectedFlight = selectedIcao ? flights.get(selectedIcao) ?? null : null
 
   // Find selected satellite record + position
   const selectedSatellite = selectedSatId ? (() => {
@@ -124,6 +126,8 @@ export default function App() {
           onVesselClick={handleSelectVessel}
           selectedIcao={selectedIcao}
           onFlightClick={handleSelectFlight}
+          flightHistory={flightHistory}
+          vesselHistory={vesselHistory}
         />
       )}
       <RightPanel
@@ -131,6 +135,8 @@ export default function App() {
         position={selectedPosition}
         vessel={selectedVessel}
         flight={selectedFlight}
+        flightInfo={flightInfo}
+        flightInfoLoading={flightInfoLoading}
       />
       <BottomBar sessionStart={sessionStart} />
     </div>
