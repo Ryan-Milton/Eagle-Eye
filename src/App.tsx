@@ -3,7 +3,6 @@ import { TopBar } from '@/components/panels/TopBar'
 import { BottomBar } from '@/components/panels/BottomBar'
 import { LeftPanel } from '@/components/panels/LeftPanel'
 import { RightPanel } from '@/components/panels/RightPanel'
-import { GlobeView } from '@/components/globe/GlobeView'
 import { MapboxGlobeView } from '@/components/globe/MapboxGlobeView'
 import { useConstellationToggles } from '@/hooks/useConstellationToggles'
 import { useSatellites } from '@/hooks/useSatellites'
@@ -22,10 +21,6 @@ export default function App() {
   const { version, loading, getPositions, getSatellites, getStats } = useSatellites(toggles)
   const { version: vesselVersion, vessels, connected: vesselConnected, vesselCount } = useVessels(true)
   const { version: flightVersion, flights, connected: flightConnected, flightCount } = useFlights(true)
-
-  const getSatelliteCount = useCallback((id: Parameters<typeof getSatellites>[0]) => {
-    return getSatellites(id).length
-  }, [getSatellites])
 
   // Mutual exclusion: selecting one type clears the others
   const handleSelectSatellite = useCallback((noradId: number | null) => {
@@ -102,32 +97,6 @@ export default function App() {
         onSelectFlight={handleSelectFlight}
       />
       {activeView === 'Globe' && (
-        <GlobeView
-          toggles={toggles}
-          getPositions={getPositions}
-          version={version}
-          selectedSatId={selectedSatId}
-          onSatelliteClick={handleSelectSatellite}
-          onToggle={toggle}
-          loading={loading}
-          getSatelliteCount={getSatelliteCount}
-          vesselLayer={{
-            enabled: true,
-            vessels,
-            version: vesselVersion,
-            selectedMmsi,
-            onVesselClick: handleSelectVessel,
-          }}
-          flightLayer={{
-            enabled: true,
-            flights,
-            version: flightVersion,
-            selectedIcao,
-            onFlightClick: handleSelectFlight,
-          }}
-        />
-      )}
-      {activeView === 'Map' && (
         <MapboxGlobeView
           toggles={toggles}
           getPositions={getPositions}

@@ -26,15 +26,3 @@ export function elapsedString(ms: number): string {
     String(s % 60).padStart(2, '0'),
   ].join(':')
 }
-
-export function latLonToVec3(
-  lat: number, lon: number, r: number
-): [number, number, number] {
-  const phi   = (90 - lat) * (Math.PI / 180)
-  const theta = (lon + 180) * (Math.PI / 180)
-  return [
-    -r * Math.sin(phi) * Math.cos(theta),
-     r * Math.cos(phi),
-     r * Math.sin(phi) * Math.sin(theta),
-  ]
-}

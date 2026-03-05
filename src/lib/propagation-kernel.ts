@@ -47,18 +47,6 @@ export function propagateBatch(
   return results
 }
 
-export function latLonAltToXYZ(
-  lat: number, lon: number, alt: number, globeRadius: number,
-): [number, number, number] {
-  const r = globeRadius * (1 + alt / EARTH_RADIUS)
-  const phi = (90 - lat) * (Math.PI / 180)
-  const theta = (lon + 180) * (Math.PI / 180)
-  return [
-    -r * Math.sin(phi) * Math.cos(theta),
-     r * Math.cos(phi),
-     r * Math.sin(phi) * Math.sin(theta),
-  ]
-}
 
 /** Map real altitude (km) to a display radius for the globe (radius=1).
  *  Logarithmic compression keeps LEO at ~1.05, MEO at ~1.18, GEO at ~1.20. */
