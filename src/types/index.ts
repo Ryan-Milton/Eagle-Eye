@@ -1,4 +1,4 @@
-export type NavView = 'Globe' | 'Objects' | 'Graph' | 'Signals' | 'Reports'
+export type NavView = 'Globe' | 'Map' | 'Objects' | 'Graph' | 'Signals' | 'Reports'
 
 export type SatCategory = 'station' | 'comms' | 'nav' | 'weather' | 'earth-obs' | 'scientific' | 'military' | 'amateur'
 

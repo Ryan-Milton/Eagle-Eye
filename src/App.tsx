@@ -4,6 +4,7 @@ import { BottomBar } from '@/components/panels/BottomBar'
 import { LeftPanel } from '@/components/panels/LeftPanel'
 import { RightPanel } from '@/components/panels/RightPanel'
 import { GlobeView } from '@/components/globe/GlobeView'
+import { MapboxGlobeView } from '@/components/globe/MapboxGlobeView'
 import { useConstellationToggles } from '@/hooks/useConstellationToggles'
 import { useSatellites } from '@/hooks/useSatellites'
 import { useVessels } from '@/hooks/useVessels'
@@ -100,30 +101,49 @@ export default function App() {
         selectedIcao={selectedIcao}
         onSelectFlight={handleSelectFlight}
       />
-      <GlobeView
-        toggles={toggles}
-        getPositions={getPositions}
-        version={version}
-        selectedSatId={selectedSatId}
-        onSatelliteClick={handleSelectSatellite}
-        onToggle={toggle}
-        loading={loading}
-        getSatelliteCount={getSatelliteCount}
-        vesselLayer={{
-          enabled: true,
-          vessels,
-          version: vesselVersion,
-          selectedMmsi,
-          onVesselClick: handleSelectVessel,
-        }}
-        flightLayer={{
-          enabled: true,
-          flights,
-          version: flightVersion,
-          selectedIcao,
-          onFlightClick: handleSelectFlight,
-        }}
-      />
+      {activeView === 'Globe' && (
+        <GlobeView
+          toggles={toggles}
+          getPositions={getPositions}
+          version={version}
+          selectedSatId={selectedSatId}
+          onSatelliteClick={handleSelectSatellite}
+          onToggle={toggle}
+          loading={loading}
+          getSatelliteCount={getSatelliteCount}
+          vesselLayer={{
+            enabled: true,
+            vessels,
+            version: vesselVersion,
+            selectedMmsi,
+            onVesselClick: handleSelectVessel,
+          }}
+          flightLayer={{
+            enabled: true,
+            flights,
+            version: flightVersion,
+            selectedIcao,
+            onFlightClick: handleSelectFlight,
+          }}
+        />
+      )}
+      {activeView === 'Map' && (
+        <MapboxGlobeView
+          toggles={toggles}
+          getPositions={getPositions}
+          version={version}
+          vessels={vessels}
+          vesselVersion={vesselVersion}
+          flights={flights}
+          flightVersion={flightVersion}
+          selectedSatId={selectedSatId}
+          onSatelliteClick={handleSelectSatellite}
+          selectedMmsi={selectedMmsi}
+          onVesselClick={handleSelectVessel}
+          selectedIcao={selectedIcao}
+          onFlightClick={handleSelectFlight}
+        />
+      )}
       <RightPanel
         satellite={selectedSatellite}
         position={selectedPosition}

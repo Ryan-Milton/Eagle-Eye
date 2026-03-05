@@ -3,7 +3,7 @@ import { useClock } from '@/hooks/useClock'
 import type { NavView } from '@/types'
 import type { SatelliteStats } from '@/hooks/useSatellites'
 
-const NAV_VIEWS: NavView[] = ['Globe', 'Objects', 'Graph', 'Signals', 'Reports']
+const NAV_VIEWS: NavView[] = ['Globe', 'Map', 'Objects', 'Graph', 'Signals', 'Reports']
 
 interface TopBarProps {
   activeView: NavView
