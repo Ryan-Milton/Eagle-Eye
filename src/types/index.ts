@@ -61,7 +61,31 @@ export type TrackingMode = 'satellites' | 'maritime' | 'flights'
 
 export type VesselType = 'cargo' | 'tanker' | 'passenger' | 'fishing' | 'military' | 'tug' | 'pleasure' | 'other'
 
+export const VESSEL_TYPES: VesselType[] = ['cargo', 'tanker', 'passenger', 'fishing', 'military', 'tug', 'pleasure', 'other']
+
+export const VESSEL_TYPE_LABELS: Record<VesselType, string> = {
+  cargo: 'Cargo',
+  tanker: 'Tanker',
+  passenger: 'Passenger',
+  fishing: 'Fishing',
+  military: 'Military',
+  tug: 'Tug',
+  pleasure: 'Pleasure',
+  other: 'Other',
+}
+
 export type FlightType = 'commercial' | 'cargo' | 'military' | 'private' | 'helicopter' | 'other'
+
+export const FLIGHT_TYPES: FlightType[] = ['commercial', 'cargo', 'military', 'private', 'helicopter', 'other']
+
+export const FLIGHT_TYPE_LABELS: Record<FlightType, string> = {
+  commercial: 'Commercial',
+  cargo: 'Cargo',
+  military: 'Military',
+  private: 'Private',
+  helicopter: 'Helicopter',
+  other: 'Other',
+}
 
 export interface FlightRecord {
   icao24: string

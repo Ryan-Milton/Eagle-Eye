@@ -4,7 +4,7 @@ import 'mapbox-gl/dist/mapbox-gl.css'
 import { cn } from '@/lib/utils'
 import { CONSTELLATIONS } from '@/data/constellations'
 import { displayRadius } from '@/lib/propagation-kernel'
-import type { ConstellationId, SatellitePosition, VesselRecord, FlightRecord } from '@/types'
+import type { ConstellationId, SatellitePosition, VesselRecord, FlightRecord, VesselType, FlightType } from '@/types'
 
 type MapStyle = 'dark' | 'light'
 
@@ -14,8 +14,10 @@ interface MapboxGlobeViewProps {
   version: number
   vessels: Map<number, VesselRecord>
   vesselVersion: number
+  vesselTypeToggles: Map<VesselType, boolean>
   flights: Map<string, FlightRecord>
   flightVersion: number
+  flightTypeToggles: Map<FlightType, boolean>
   selectedSatId: number | null
   onSatelliteClick: (noradId: number | null) => void
   selectedMmsi: number | null
@@ -91,9 +93,11 @@ function buildSatelliteGeoJSON(
 function buildVesselGeoJSON(
   vessels: Map<number, VesselRecord>,
   selectedMmsi: number | null,
+  vesselTypeToggles: Map<VesselType, boolean>,
 ): GeoJSONFeatureCollection {
   const features: GeoJSON.Feature<GeoJSON.Point>[] = []
   for (const [mmsi, v] of vessels) {
+    if (vesselTypeToggles.get(v.type) === false) continue
     features.push({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [v.lon, v.lat] },
@@ -110,9 +114,11 @@ function buildVesselGeoJSON(
 function buildFlightGeoJSON(
   flights: Map<string, FlightRecord>,
   selectedIcao: string | null,
+  flightTypeToggles: Map<FlightType, boolean>,
 ): GeoJSONFeatureCollection {
   const features: GeoJSON.Feature<GeoJSON.Point>[] = []
   for (const [icao24, f] of flights) {
+    if (flightTypeToggles.get(f.type) === false) continue
     features.push({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [f.lon, f.lat] },
@@ -213,8 +219,10 @@ export function MapboxGlobeView({
   version,
   vessels,
   vesselVersion,
+  vesselTypeToggles,
   flights,
   flightVersion,
+  flightTypeToggles,
   selectedSatId,
   onSatelliteClick,
   selectedMmsi,
@@ -340,16 +348,16 @@ export function MapboxGlobeView({
     const map = mapRef.current
     if (!map || !layersReadyRef.current) return
     const src = map.getSource('vessels') as mapboxgl.GeoJSONSource | undefined
-    if (src) src.setData(buildVesselGeoJSON(vessels, selectedMmsi))
-  }, [vesselVersion, vessels, selectedMmsi])
+    if (src) src.setData(buildVesselGeoJSON(vessels, selectedMmsi, vesselTypeToggles))
+  }, [vesselVersion, vessels, selectedMmsi, vesselTypeToggles])
 
   // Sync flight data
   useEffect(() => {
     const map = mapRef.current
     if (!map || !layersReadyRef.current) return
     const src = map.getSource('flights') as mapboxgl.GeoJSONSource | undefined
-    if (src) src.setData(buildFlightGeoJSON(flights, selectedIcao))
-  }, [flightVersion, flights, selectedIcao])
+    if (src) src.setData(buildFlightGeoJSON(flights, selectedIcao, flightTypeToggles))
+  }, [flightVersion, flights, selectedIcao, flightTypeToggles])
 
   // Also sync data when layers become ready after style change
   useEffect(() => {
@@ -360,14 +368,14 @@ export function MapboxGlobeView({
       const satSrc = map.getSource('satellites') as mapboxgl.GeoJSONSource | undefined
       if (satSrc) satSrc.setData(buildSatelliteGeoJSON(toggles, getPositions, selectedSatId))
       const vesselSrc = map.getSource('vessels') as mapboxgl.GeoJSONSource | undefined
-      if (vesselSrc) vesselSrc.setData(buildVesselGeoJSON(vessels, selectedMmsi))
+      if (vesselSrc) vesselSrc.setData(buildVesselGeoJSON(vessels, selectedMmsi, vesselTypeToggles))
       const flightSrc = map.getSource('flights') as mapboxgl.GeoJSONSource | undefined
-      if (flightSrc) flightSrc.setData(buildFlightGeoJSON(flights, selectedIcao))
+      if (flightSrc) flightSrc.setData(buildFlightGeoJSON(flights, selectedIcao, flightTypeToggles))
     }
 
     map.on('style.load', syncAll)
     return () => { map.off('style.load', syncAll) }
-  }, [toggles, getPositions, selectedSatId, version, vessels, selectedMmsi, vesselVersion, flights, selectedIcao, flightVersion])
+  }, [toggles, getPositions, selectedSatId, version, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles])
 
   return (
     <div className="fixed top-[46px] left-64 right-[272px] bottom-[34px]">

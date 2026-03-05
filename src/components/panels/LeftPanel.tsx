@@ -2,7 +2,8 @@ import { useState, useMemo } from 'react'
 import { Badge } from '@/components/ui/Badge'
 import { CONSTELLATIONS, CATEGORY_LABELS } from '@/data/constellations'
 import { cn } from '@/lib/utils'
-import type { ConstellationId, SatCategory, SatelliteRecord, SatellitePosition, TrackingMode, VesselRecord, FlightRecord } from '@/types'
+import { VESSEL_TYPES, VESSEL_TYPE_LABELS, FLIGHT_TYPES, FLIGHT_TYPE_LABELS } from '@/types'
+import type { ConstellationId, SatCategory, SatelliteRecord, SatellitePosition, VesselRecord, VesselType, FlightRecord, FlightType } from '@/types'
 
 const CATEGORY_ORDER: SatCategory[] = [
   'station', 'comms', 'nav', 'weather', 'earth-obs', 'scientific', 'military', 'amateur',
@@ -19,6 +20,11 @@ const VESSEL_TYPE_COLORS: Record<string, string> = {
   other: 'text-zinc-400 border-zinc-700/60 bg-zinc-800/40',
 }
 
+const VESSEL_TYPE_DOT_COLORS: Record<string, string> = {
+  cargo: '#22d3ee', tanker: '#fb7185', passenger: '#a78bfa', fishing: '#4ade80',
+  military: '#f87171', tug: '#fbbf24', pleasure: '#60a5fa', other: '#a1a1aa',
+}
+
 const FLIGHT_TYPE_COLORS: Record<string, string> = {
   commercial: 'text-yellow-400 border-yellow-800/60 bg-yellow-950/40',
   cargo: 'text-amber-400 border-amber-800/60 bg-amber-950/40',
@@ -28,78 +34,152 @@ const FLIGHT_TYPE_COLORS: Record<string, string> = {
   other: 'text-zinc-400 border-zinc-700/60 bg-zinc-800/40',
 }
 
+const FLIGHT_TYPE_DOT_COLORS: Record<string, string> = {
+  commercial: '#facc15', cargo: '#f59e0b', military: '#f87171',
+  private: '#60a5fa', helicopter: '#4ade80', other: '#a1a1aa',
+}
+
+type SectionId = 'satellites' | 'maritime' | 'aircraft'
+
 interface LeftPanelProps {
   toggles: Map<ConstellationId, boolean>
   onToggle: (id: ConstellationId) => void
+  onEnableAllConstellations: () => void
+  onDisableAllConstellations: () => void
   getSatellites: (id: ConstellationId) => SatelliteRecord[]
   getPositions: (id: ConstellationId) => SatellitePosition[]
   version: number
   loading: Set<ConstellationId>
   selectedSatId: number | null
   onSelectSatellite: (noradId: number | null) => void
-  trackingMode: TrackingMode
-  onTrackingModeChange: (mode: TrackingMode) => void
   vessels: Map<number, VesselRecord>
   vesselCount: number
   vesselConnected: boolean
   vesselVersion: number
   selectedMmsi: number | null
   onSelectVessel: (mmsi: number | null) => void
+  vesselTypeToggles: Map<VesselType, boolean>
+  onToggleVesselType: (type: VesselType) => void
+  onEnableAllVesselTypes: () => void
+  onDisableAllVesselTypes: () => void
   flights: Map<string, FlightRecord>
   flightCount: number
   flightConnected: boolean
   flightVersion: number
   selectedIcao: string | null
   onSelectFlight: (icao: string | null) => void
+  flightTypeToggles: Map<FlightType, boolean>
+  onToggleFlightType: (type: FlightType) => void
+  onEnableAllFlightTypes: () => void
+  onDisableAllFlightTypes: () => void
+}
+
+function MasterToggle({ allOn, noneOn, onToggle }: { allOn: boolean; noneOn: boolean; onToggle: () => void }) {
+  const indeterminate = !allOn && !noneOn
+  return (
+    <button onClick={e => { e.stopPropagation(); onToggle() }} className="px-2 py-1.5 flex-shrink-0">
+      <span className={cn(
+        'inline-flex items-center justify-center w-3 h-3 rounded-sm border transition-all',
+        allOn ? 'bg-orange-500 border-orange-500' : indeterminate ? 'bg-zinc-600 border-zinc-600' : 'border-zinc-600',
+      )}>
+        {allOn && (
+          <svg viewBox="0 0 12 12" className="w-full h-full" fill="none">
+            <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+        {indeterminate && (
+          <svg viewBox="0 0 12 12" className="w-full h-full" fill="none">
+            <line x1="3" y1="6" x2="9" y2="6" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        )}
+      </span>
+    </button>
+  )
+}
+
+function SearchInput({ value, onChange, placeholder, focusColor }: { value: string; onChange: (v: string) => void; placeholder: string; focusColor: string }) {
+  return (
+    <div className="px-2.5 pt-2 pb-1.5 flex-shrink-0">
+      <div className="relative">
+        <input
+          type="text"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          className={cn('w-full bg-zinc-800 border border-zinc-700 text-zinc-50 text-[12px] pl-7 pr-2.5 py-1 rounded-sm outline-none placeholder-zinc-700 transition-colors', focusColor)}
+        />
+        <svg className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-600" width="11" height="11" viewBox="0 0 11 11" fill="none">
+          <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1.3" />
+          <line x1="7.5" y1="7.5" x2="10" y2="10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+        </svg>
+      </div>
+    </div>
+  )
+}
+
+function TypeToggle({ on, color, onClick }: { on: boolean; color: string; onClick: () => void }) {
+  return (
+    <button onClick={e => { e.stopPropagation(); onClick() }} className="px-2 py-1.5 flex-shrink-0">
+      <span className={cn(
+        'inline-block w-3 h-3 rounded-sm border transition-all',
+        on ? 'border-current' : 'border-zinc-600',
+      )} style={on ? { backgroundColor: color, borderColor: color } : undefined}>
+        {on && (
+          <svg viewBox="0 0 12 12" className="w-full h-full" fill="none">
+            <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+      </span>
+    </button>
+  )
 }
 
 export function LeftPanel({
   toggles,
   onToggle,
+  onEnableAllConstellations,
+  onDisableAllConstellations,
   getSatellites,
   getPositions,
   version,
   loading,
   selectedSatId,
   onSelectSatellite,
-  trackingMode,
-  onTrackingModeChange,
   vessels,
   vesselCount,
   vesselConnected,
   vesselVersion,
   selectedMmsi,
   onSelectVessel,
+  vesselTypeToggles,
+  onToggleVesselType,
+  onEnableAllVesselTypes,
+  onDisableAllVesselTypes,
   flights,
   flightCount,
   flightConnected,
   flightVersion,
   selectedIcao,
   onSelectFlight,
+  flightTypeToggles,
+  onToggleFlightType,
+  onEnableAllFlightTypes,
+  onDisableAllFlightTypes,
 }: LeftPanelProps) {
-  const [query, setQuery] = useState('')
-  const [vesselQuery, setVesselQuery] = useState('')
-  const [flightQuery, setFlightQuery] = useState('')
-  const [expandedCategories, setExpandedCategories] = useState<Set<SatCategory>>(new Set(['station', 'nav']))
+  const [expandedSections, setExpandedSections] = useState<Set<SectionId>>(new Set())
+  const [globalQuery, setGlobalQuery] = useState('')
+  const [expandedCategories, setExpandedCategories] = useState<Set<SatCategory>>(new Set())
   const [expandedConstellations, setExpandedConstellations] = useState<Set<ConstellationId>>(new Set())
-  const [categoryFilter, setCategoryFilter] = useState<SatCategory | 'all'>('all')
+  const [expandedVesselTypes, setExpandedVesselTypes] = useState<Set<VesselType>>(new Set())
+  const [expandedFlightTypes, setExpandedFlightTypes] = useState<Set<FlightType>>(new Set())
 
-  // Compute stats
-  const stats = useMemo(() => {
-    let tracked = 0
-    let visible = 0
-    let constellations = 0
-    for (const c of CONSTELLATIONS) {
-      const sats = getSatellites(c.id)
-      tracked += sats.length
-      if (toggles.get(c.id)) {
-        visible += sats.length
-        constellations++
-      }
-    }
-    return { tracked, visible, constellations }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [version, toggles, getSatellites])
+  const toggleSection = (id: SectionId) => {
+    setExpandedSections(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
 
   const toggleCategoryExpand = (cat: SatCategory) => {
     setExpandedCategories(prev => {
@@ -117,447 +197,460 @@ export function LeftPanel({
     })
   }
 
+  const toggleVesselTypeExpand = (type: VesselType) => {
+    setExpandedVesselTypes(prev => {
+      const next = new Set(prev)
+      if (next.has(type)) next.delete(type); else next.add(type)
+      return next
+    })
+  }
+
+  const toggleFlightTypeExpand = (type: FlightType) => {
+    setExpandedFlightTypes(prev => {
+      const next = new Set(prev)
+      if (next.has(type)) next.delete(type); else next.add(type)
+      return next
+    })
+  }
+
+  // Satellite stats
+  const satStats = useMemo(() => {
+    let tracked = 0, visible = 0, constellations = 0
+    for (const c of CONSTELLATIONS) {
+      const sats = getSatellites(c.id)
+      tracked += sats.length
+      if (toggles.get(c.id)) { visible += sats.length; constellations++ }
+    }
+    return { tracked, visible, constellations }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [version, toggles, getSatellites])
+
+  const allConstellationsOn = useMemo(() => [...toggles.values()].every(v => v), [toggles])
+  const noConstellationsOn = useMemo(() => [...toggles.values()].every(v => !v), [toggles])
+
+  // Vessel counts by type
+  const vesselsByType = useMemo(() => {
+    void vesselVersion
+    const counts = new Map<VesselType, VesselRecord[]>()
+    for (const t of VESSEL_TYPES) counts.set(t, [])
+    for (const v of vessels.values()) {
+      const arr = counts.get(v.type)
+      if (arr) arr.push(v)
+    }
+    return counts
+  }, [vessels, vesselVersion])
+
+  const allVesselTypesOn = useMemo(() => [...vesselTypeToggles.values()].every(v => v), [vesselTypeToggles])
+  const noVesselTypesOn = useMemo(() => [...vesselTypeToggles.values()].every(v => !v), [vesselTypeToggles])
+
+  // Flight counts by type
+  const flightsByType = useMemo(() => {
+    void flightVersion
+    const counts = new Map<FlightType, FlightRecord[]>()
+    for (const t of FLIGHT_TYPES) counts.set(t, [])
+    for (const f of flights.values()) {
+      const arr = counts.get(f.type)
+      if (arr) arr.push(f)
+    }
+    return counts
+  }, [flights, flightVersion])
+
+  const allFlightTypesOn = useMemo(() => [...flightTypeToggles.values()].every(v => v), [flightTypeToggles])
+  const noFlightTypesOn = useMemo(() => [...flightTypeToggles.values()].every(v => !v), [flightTypeToggles])
+
+  // Grouped constellations
   const groupedConstellations = useMemo(() => {
     const map = new Map<SatCategory, typeof CONSTELLATIONS>()
     for (const cat of CATEGORY_ORDER) {
       const consts = CONSTELLATIONS.filter(c => c.category === cat)
-      if (categoryFilter !== 'all' && cat !== categoryFilter) continue
       if (consts.length > 0) map.set(cat, consts)
     }
     return map
-  }, [categoryFilter])
+  }, [])
 
-  // Vessel list (sorted by last update, filtered by search)
-  const filteredVessels = useMemo(() => {
-    void vesselVersion // react dependency
-    const arr = Array.from(vessels.values())
-    const sorted = arr.sort((a, b) => b.lastUpdate - a.lastUpdate)
-    if (!vesselQuery) return sorted
-    const q = vesselQuery.toLowerCase()
-    return sorted.filter(v =>
-      v.name.toLowerCase().includes(q) ||
-      String(v.mmsi).includes(q)
-    )
-  }, [vessels, vesselQuery, vesselVersion])
+  // Global search results
+  const isSearching = globalQuery.length > 0
+  const searchResults = useMemo(() => {
+    if (!isSearching) return null
+    const q = globalQuery.toLowerCase()
 
-  const avgSpeed = useMemo(() => {
-    void vesselVersion
-    if (vessels.size === 0) return 0
-    let sum = 0
-    for (const v of vessels.values()) sum += v.speed
-    return sum / vessels.size
-  }, [vessels, vesselVersion])
+    // Search satellites
+    const matchedSats: { sat: SatelliteRecord; constellation: typeof CONSTELLATIONS[number]; pos: SatellitePosition | undefined }[] = []
+    for (const c of CONSTELLATIONS) {
+      if (!toggles.get(c.id)) continue
+      const sats = getSatellites(c.id)
+      const positions = getPositions(c.id)
+      for (const sat of sats) {
+        if (sat.name.toLowerCase().includes(q) || String(sat.noradId).includes(q)) {
+          matchedSats.push({ sat, constellation: c, pos: positions.find(p => p.noradId === sat.noradId) })
+        }
+      }
+    }
 
-  // Flight list (sorted by callsign, filtered by search)
-  const filteredFlights = useMemo(() => {
-    void flightVersion
-    const arr = Array.from(flights.values())
-    const sorted = arr.sort((a, b) => a.callsign.localeCompare(b.callsign))
-    if (!flightQuery) return sorted
-    const q = flightQuery.toLowerCase()
-    return sorted.filter(f =>
-      f.callsign.toLowerCase().includes(q) ||
-      f.icao24.toLowerCase().includes(q) ||
-      f.originCountry.toLowerCase().includes(q)
-    )
-  }, [flights, flightQuery, flightVersion])
+    // Search vessels
+    const matchedVessels: VesselRecord[] = []
+    for (const v of vessels.values()) {
+      if (v.name.toLowerCase().includes(q) || String(v.mmsi).includes(q) || v.type.toLowerCase().includes(q)) {
+        matchedVessels.push(v)
+      }
+    }
+    matchedVessels.sort((a, b) => b.lastUpdate - a.lastUpdate)
 
-  const avgAltitude = useMemo(() => {
-    void flightVersion
-    if (flights.size === 0) return 0
-    let sum = 0
-    for (const f of flights.values()) sum += f.altitude
-    return sum / flights.size
-  }, [flights, flightVersion])
+    // Search flights
+    const matchedFlights: FlightRecord[] = []
+    for (const f of flights.values()) {
+      if (f.callsign.toLowerCase().includes(q) || f.icao24.toLowerCase().includes(q) || f.originCountry.toLowerCase().includes(q) || f.type.toLowerCase().includes(q)) {
+        matchedFlights.push(f)
+      }
+    }
+    matchedFlights.sort((a, b) => a.callsign.localeCompare(b.callsign))
+
+    return { sats: matchedSats, vessels: matchedVessels, flights: matchedFlights }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalQuery, isSearching, version, toggles, getSatellites, getPositions, vessels, vesselVersion, flights, flightVersion])
+
+  const totalResults = searchResults ? searchResults.sats.length + searchResults.vessels.length + searchResults.flights.length : 0
 
   return (
     <aside className="fixed top-[46px] left-0 bottom-[34px] w-64 bg-zinc-900 border-r border-zinc-800 z-40 flex flex-col overflow-hidden">
-
-      {/* Mode tabs */}
-      <div className="flex border-b border-zinc-800 flex-shrink-0">
-        {(['satellites', 'maritime', 'flights'] as const).map(mode => (
-          <button
-            key={mode}
-            onClick={() => onTrackingModeChange(mode)}
-            className={cn(
-              'flex-1 font-display text-[12px] font-semibold tracking-[2px] uppercase py-2 border-b-2 transition-all',
-              trackingMode === mode
-                ? mode === 'maritime' ? 'text-cyan-400 border-b-cyan-500'
-                  : mode === 'flights' ? 'text-yellow-400 border-b-yellow-500'
-                  : 'text-orange-400 border-b-orange-500'
-                : 'text-zinc-600 border-b-transparent hover:text-zinc-400',
-            )}
-          >
-            {mode === 'satellites' ? 'SAT' : mode === 'maritime' ? 'AIS' : 'ADS-B'}
-          </button>
-        ))}
-      </div>
-
-      {/* Header */}
+      {/* Panel title */}
       <div className="flex items-center justify-between px-3.5 h-9 border-b border-zinc-800 flex-shrink-0">
-        <span className="font-display text-[12px] font-semibold tracking-[2.5px] text-zinc-600 uppercase">
-          {trackingMode === 'satellites' ? 'Satellites' : trackingMode === 'maritime' ? 'Vessels' : 'Flights'}
-        </span>
-        <Badge variant="default">{trackingMode === 'satellites' ? stats.tracked : trackingMode === 'maritime' ? vesselCount : flightCount}</Badge>
+        <span className="font-display text-[12px] font-semibold tracking-[2.5px] text-zinc-600 uppercase">Tracking</span>
       </div>
 
-      {trackingMode === 'flights' ? (
-        <>
-          {/* Flight metrics grid */}
-          <div className="grid grid-cols-2 border-b border-zinc-800 flex-shrink-0">
-            {[
-              { val: flightCount, label: 'Tracked', color: 'text-zinc-50' },
-              { val: flightConnected ? 'LIVE' : 'OFFLINE', label: 'Status', color: flightConnected ? 'text-green-400' : 'text-red-400' },
-              { val: `${Math.round(avgAltitude * 3.28084 / 100)}`, label: 'Avg FL', color: 'text-yellow-400' },
-              { val: 'OpenSky', label: 'Source', color: 'text-blue-400' },
-            ].map(({ val, label, color }, i) => (
-              <div
-                key={label}
-                className={cn(
-                  'p-2.5 border-zinc-800',
-                  i % 2 === 0 ? 'border-r' : '',
-                  i < 2 ? 'border-b' : '',
-                )}
-              >
-                <div className={cn('font-display text-xl font-semibold leading-none mb-1', color)}>
-                  {val}
-                </div>
-                <div className="text-[13px] font-medium tracking-[1.5px] text-zinc-600 uppercase">
-                  {label}
-                </div>
-              </div>
-            ))}
-          </div>
+      {/* Global search */}
+      <SearchInput value={globalQuery} onChange={setGlobalQuery} placeholder="Search all entities..." focusColor="focus:border-orange-800" />
 
-          {/* Flight search */}
-          <div className="px-2.5 pt-2.5 pb-2 border-b border-zinc-800 flex-shrink-0">
-            <div className="relative">
-              <input
-                type="text"
-                value={flightQuery}
-                onChange={e => setFlightQuery(e.target.value)}
-                placeholder="Search callsign, ICAO, country..."
-                className="w-full bg-zinc-800 border border-zinc-700 text-zinc-50 text-[13px] pl-7 pr-2.5 py-1.5 rounded-sm outline-none placeholder-zinc-700 focus:border-yellow-800 transition-colors"
-              />
-              <svg className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-600" width="11" height="11" viewBox="0 0 11 11" fill="none">
-                <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1.3" />
-                <line x1="7.5" y1="7.5" x2="10" y2="10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-              </svg>
-            </div>
-          </div>
-
-          {/* Flight list */}
-          <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
-            {filteredFlights.slice(0, 200).map(flight => {
-              const isSelected = flight.icao24 === selectedIcao
-              return (
-                <button
-                  key={flight.icao24}
-                  onClick={() => onSelectFlight(isSelected ? null : flight.icao24)}
-                  className={cn(
-                    'w-full flex items-center gap-2 px-3.5 py-1.5 text-left border-b border-zinc-800/30 transition-colors',
-                    isSelected ? 'bg-yellow-950/20 border-l-2 border-l-yellow-500' : 'hover:bg-zinc-800/30',
-                  )}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="font-mono text-[12px] text-zinc-400 truncate">{flight.callsign}</div>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="font-mono text-[11px] text-zinc-600">{flight.icao24.toUpperCase()}</span>
-                      <span className={cn(
-                        'font-display text-[10px] font-semibold tracking-[0.5px] uppercase px-1 py-px rounded-sm border',
-                        FLIGHT_TYPE_COLORS[flight.type] || FLIGHT_TYPE_COLORS.other,
-                      )}>
-                        {flight.type}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end flex-shrink-0">
-                    <span className="font-mono text-[12px] text-zinc-600">FL{Math.round(flight.altitude * 3.28084 / 100)}</span>
-                    <span className="font-mono text-[12px] text-zinc-600">{flight.heading.toFixed(0)}°</span>
-                  </div>
-                </button>
-              )
-            })}
-            {filteredFlights.length > 200 && (
-              <div className="px-3.5 py-1.5 font-mono text-[13px] text-zinc-600">
-                +{filteredFlights.length - 200} more...
-              </div>
-            )}
-            {filteredFlights.length === 0 && flightCount === 0 && (
-              <div className="flex-1 flex items-center justify-center py-12">
-                <p className="text-[13px] text-zinc-600">
-                  {flightConnected ? 'Waiting for flight data...' : 'Connecting to ADS-B...'}
-                </p>
-              </div>
-            )}
-          </div>
-        </>
-      ) : trackingMode === 'maritime' ? (
-        <>
-          {/* Maritime metrics grid */}
-          <div className="grid grid-cols-2 border-b border-zinc-800 flex-shrink-0">
-            {[
-              { val: vesselCount, label: 'Tracked', color: 'text-zinc-50' },
-              { val: vesselConnected ? 'LIVE' : 'OFFLINE', label: 'Status', color: vesselConnected ? 'text-green-400' : 'text-red-400' },
-              { val: `${avgSpeed.toFixed(1)}`, label: 'Avg SOG (kn)', color: 'text-cyan-400' },
-              { val: 'AISStream', label: 'Source', color: 'text-blue-400' },
-            ].map(({ val, label, color }, i) => (
-              <div
-                key={label}
-                className={cn(
-                  'p-2.5 border-zinc-800',
-                  i % 2 === 0 ? 'border-r' : '',
-                  i < 2 ? 'border-b' : '',
-                )}
-              >
-                <div className={cn('font-display text-xl font-semibold leading-none mb-1', color)}>
-                  {val}
-                </div>
-                <div className="text-[13px] font-medium tracking-[1.5px] text-zinc-600 uppercase">
-                  {label}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Vessel search */}
-          <div className="px-2.5 pt-2.5 pb-2 border-b border-zinc-800 flex-shrink-0">
-            <div className="relative">
-              <input
-                type="text"
-                value={vesselQuery}
-                onChange={e => setVesselQuery(e.target.value)}
-                placeholder="Search by name or MMSI..."
-                className="w-full bg-zinc-800 border border-zinc-700 text-zinc-50 text-[13px] pl-7 pr-2.5 py-1.5 rounded-sm outline-none placeholder-zinc-700 focus:border-cyan-800 transition-colors"
-              />
-              <svg className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-600" width="11" height="11" viewBox="0 0 11 11" fill="none">
-                <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1.3" />
-                <line x1="7.5" y1="7.5" x2="10" y2="10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-              </svg>
-            </div>
-          </div>
-
-          {/* Vessel list */}
-          <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
-            {filteredVessels.slice(0, 200).map(vessel => {
-              const isSelected = vessel.mmsi === selectedMmsi
-              return (
-                <button
-                  key={vessel.mmsi}
-                  onClick={() => onSelectVessel(isSelected ? null : vessel.mmsi)}
-                  className={cn(
-                    'w-full flex items-center gap-2 px-3.5 py-1.5 text-left border-b border-zinc-800/30 transition-colors',
-                    isSelected ? 'bg-cyan-950/20 border-l-2 border-l-cyan-500' : 'hover:bg-zinc-800/30',
-                  )}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="font-mono text-[12px] text-zinc-400 truncate">{vessel.name}</div>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="font-mono text-[11px] text-zinc-600">{vessel.mmsi}</span>
-                      <span className={cn(
-                        'font-display text-[10px] font-semibold tracking-[0.5px] uppercase px-1 py-px rounded-sm border',
-                        VESSEL_TYPE_COLORS[vessel.type] || VESSEL_TYPE_COLORS.other,
-                      )}>
-                        {vessel.type}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end flex-shrink-0">
-                    <span className="font-mono text-[12px] text-zinc-600">{vessel.speed.toFixed(1)} kn</span>
-                    <span className="font-mono text-[12px] text-zinc-600">{vessel.course.toFixed(0)}°</span>
-                  </div>
-                </button>
-              )
-            })}
-            {filteredVessels.length > 200 && (
-              <div className="px-3.5 py-1.5 font-mono text-[13px] text-zinc-600">
-                +{filteredVessels.length - 200} more...
-              </div>
-            )}
-            {filteredVessels.length === 0 && vesselCount === 0 && (
-              <div className="flex-1 flex items-center justify-center py-12">
-                <p className="text-[13px] text-zinc-600">
-                  {vesselConnected ? 'Waiting for vessel data...' : 'Connecting to AIS...'}
-                </p>
-              </div>
-            )}
-          </div>
-        </>
-      ) : (
-      <>
-      {/* Metrics grid */}
-      <div className="grid grid-cols-2 border-b border-zinc-800 flex-shrink-0">
-        {[
-          { val: stats.tracked, label: 'Tracked', color: 'text-zinc-50' },
-          { val: stats.visible, label: 'Visible', color: 'text-green-400' },
-          { val: stats.constellations, label: 'Constellations', color: 'text-orange-400' },
-          { val: 'CelesTrak', label: 'Source', color: 'text-blue-400' },
-        ].map(({ val, label, color }, i) => (
-          <div
-            key={label}
-            className={cn(
-              'p-2.5 border-zinc-800',
-              i % 2 === 0 ? 'border-r' : '',
-              i < 2 ? 'border-b' : '',
-            )}
-          >
-            <div className={cn('font-display text-xl font-semibold leading-none mb-1', color)}>
-              {val}
-            </div>
-            <div className="text-[13px] font-medium tracking-[1.5px] text-zinc-600 uppercase">
-              {label}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Search */}
-      <div className="px-2.5 pt-2.5 flex-shrink-0">
-        <div className="relative">
-          <input
-            type="text"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Search by name or NORAD ID…"
-            className="w-full bg-zinc-800 border border-zinc-700 text-zinc-50 text-[13px] pl-7 pr-2.5 py-1.5 rounded-sm outline-none placeholder-zinc-700 focus:border-orange-800 transition-colors"
-          />
-          <svg className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-600" width="11" height="11" viewBox="0 0 11 11" fill="none">
-            <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1.3" />
-            <line x1="7.5" y1="7.5" x2="10" y2="10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-          </svg>
-        </div>
-      </div>
-
-      {/* Category filter tabs */}
-      <div className="flex gap-1 px-2.5 py-2 border-b border-zinc-800 flex-shrink-0 flex-wrap">
-        {(['all', ...CATEGORY_ORDER] as const).map(cat => (
-          <button
-            key={cat}
-            onClick={() => setCategoryFilter(cat)}
-            className={cn(
-              'font-display text-[13px] font-medium tracking-[1px] uppercase px-2 py-0.5 border rounded-sm transition-all',
-              categoryFilter === cat
-                ? 'text-orange-400 border-orange-800/60 bg-orange-950/40'
-                : 'text-zinc-600 border-zinc-700 hover:text-zinc-400 hover:border-zinc-600',
-            )}
-          >
-            {cat === 'all' ? 'All' : CATEGORY_LABELS[cat].split(' ')[0]}
-          </button>
-        ))}
-      </div>
-
-      {/* Constellation groups */}
       <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
-        {Array.from(groupedConstellations.entries()).map(([cat, consts]) => {
-          const isExpanded = expandedCategories.has(cat)
-          return (
-            <div key={cat}>
-              {/* Category header */}
-              <button
-                onClick={() => toggleCategoryExpand(cat)}
-                className="w-full flex items-center gap-2 px-3.5 py-2 border-b border-zinc-800/60 hover:bg-zinc-800/30 transition-colors"
-              >
-                <span className="text-[13px] text-zinc-600">{isExpanded ? '▾' : '▸'}</span>
-                <span className="font-display text-[12px] font-semibold tracking-[2px] text-zinc-500 uppercase flex-1 text-left">
-                  {CATEGORY_LABELS[cat]}
-                </span>
-                <span className="font-mono text-[13px] text-zinc-600">{consts.length}</span>
-              </button>
 
-              {isExpanded && consts.map(c => {
-                const isOn = toggles.get(c.id) ?? false
-                const isLoading = loading.has(c.id)
-                const sats = getSatellites(c.id)
-                const isConstExpanded = expandedConstellations.has(c.id)
-                const colorHex = `#${c.color.toString(16).padStart(6, '0')}`
+      {isSearching && searchResults ? (
+        /* ── SEARCH RESULTS VIEW ── */
+        <div>
+          <div className="px-3.5 py-1.5 border-b border-zinc-800 flex-shrink-0">
+            <span className="font-mono text-[11px] text-zinc-500">{totalResults} result{totalResults !== 1 ? 's' : ''}</span>
+          </div>
 
-                // Filter satellites by search query
-                const filteredSats = query
-                  ? sats.filter(s =>
-                    s.name.toLowerCase().includes(query.toLowerCase()) ||
-                    String(s.noradId).includes(query)
-                  )
-                  : sats
+          {/* Satellite results */}
+          {searchResults.sats.length > 0 && (
+            <div>
+              <div className="px-3.5 py-1.5 border-b border-zinc-800/60">
+                <span className="font-display text-[11px] font-semibold tracking-[1.5px] text-orange-400/70 uppercase">Satellites</span>
+                <span className="font-mono text-[11px] text-zinc-600 ml-2">{searchResults.sats.length}</span>
+              </div>
+              {searchResults.sats.slice(0, 100).map(({ sat, constellation, pos }) => {
+                const isSelected = sat.noradId === selectedSatId
+                const colorHex = `#${constellation.color.toString(16).padStart(6, '0')}`
+                return (
+                  <button
+                    key={sat.noradId}
+                    onClick={() => onSelectSatellite(isSelected ? null : sat.noradId)}
+                    className={cn(
+                      'w-full flex items-center gap-2 pl-3.5 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
+                      isSelected ? 'bg-orange-950/20 border-l-2 border-l-orange-500' : 'hover:bg-zinc-800/30',
+                    )}
+                  >
+                    <span className="inline-block w-[5px] h-[5px] rounded-full flex-shrink-0" style={{ backgroundColor: colorHex }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-mono text-[11px] text-zinc-400 truncate">{sat.name}</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono text-[10px] text-zinc-600">{sat.noradId}</span>
+                        <span className="font-mono text-[10px] text-zinc-700">{constellation.name}</span>
+                      </div>
+                    </div>
+                    {pos && (
+                      <div className="flex flex-col items-end flex-shrink-0">
+                        <span className="font-mono text-[11px] text-zinc-600">{pos.alt.toFixed(0)} km</span>
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
+              {searchResults.sats.length > 100 && (
+                <div className="px-3.5 py-1 font-mono text-[11px] text-zinc-600">+{searchResults.sats.length - 100} more...</div>
+              )}
+            </div>
+          )}
+
+          {/* Vessel results */}
+          {searchResults.vessels.length > 0 && (
+            <div>
+              <div className="px-3.5 py-1.5 border-b border-zinc-800/60">
+                <span className="font-display text-[11px] font-semibold tracking-[1.5px] text-cyan-400/70 uppercase">Maritime</span>
+                <span className="font-mono text-[11px] text-zinc-600 ml-2">{searchResults.vessels.length}</span>
+              </div>
+              {searchResults.vessels.slice(0, 200).map(vessel => {
+                const isSelected = vessel.mmsi === selectedMmsi
+                return (
+                  <button
+                    key={vessel.mmsi}
+                    onClick={() => onSelectVessel(isSelected ? null : vessel.mmsi)}
+                    className={cn(
+                      'w-full flex items-center gap-2 pl-3.5 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
+                      isSelected ? 'bg-cyan-950/20 border-l-2 border-l-cyan-500' : 'hover:bg-zinc-800/30',
+                    )}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="font-mono text-[11px] text-zinc-400 truncate">{vessel.name}</div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="font-mono text-[10px] text-zinc-600">{vessel.mmsi}</span>
+                        <span className={cn(
+                          'font-display text-[9px] font-semibold tracking-[0.5px] uppercase px-1 py-px rounded-sm border',
+                          VESSEL_TYPE_COLORS[vessel.type] || VESSEL_TYPE_COLORS.other,
+                        )}>
+                          {vessel.type}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end flex-shrink-0">
+                      <span className="font-mono text-[11px] text-zinc-600">{vessel.speed.toFixed(1)} kn</span>
+                    </div>
+                  </button>
+                )
+              })}
+              {searchResults.vessels.length > 200 && (
+                <div className="px-3.5 py-1 font-mono text-[11px] text-zinc-600">+{searchResults.vessels.length - 200} more...</div>
+              )}
+            </div>
+          )}
+
+          {/* Flight results */}
+          {searchResults.flights.length > 0 && (
+            <div>
+              <div className="px-3.5 py-1.5 border-b border-zinc-800/60">
+                <span className="font-display text-[11px] font-semibold tracking-[1.5px] text-yellow-400/70 uppercase">Aircraft</span>
+                <span className="font-mono text-[11px] text-zinc-600 ml-2">{searchResults.flights.length}</span>
+              </div>
+              {searchResults.flights.slice(0, 200).map(flight => {
+                const isSelected = flight.icao24 === selectedIcao
+                return (
+                  <button
+                    key={flight.icao24}
+                    onClick={() => onSelectFlight(isSelected ? null : flight.icao24)}
+                    className={cn(
+                      'w-full flex items-center gap-2 pl-3.5 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
+                      isSelected ? 'bg-yellow-950/20 border-l-2 border-l-yellow-500' : 'hover:bg-zinc-800/30',
+                    )}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="font-mono text-[11px] text-zinc-400 truncate">{flight.callsign}</div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="font-mono text-[10px] text-zinc-600">{flight.icao24.toUpperCase()}</span>
+                        <span className={cn(
+                          'font-display text-[9px] font-semibold tracking-[0.5px] uppercase px-1 py-px rounded-sm border',
+                          FLIGHT_TYPE_COLORS[flight.type] || FLIGHT_TYPE_COLORS.other,
+                        )}>
+                          {flight.type}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end flex-shrink-0">
+                      <span className="font-mono text-[11px] text-zinc-600">FL{Math.round(flight.altitude * 3.28084 / 100)}</span>
+                    </div>
+                  </button>
+                )
+              })}
+              {searchResults.flights.length > 200 && (
+                <div className="px-3.5 py-1 font-mono text-[11px] text-zinc-600">+{searchResults.flights.length - 200} more...</div>
+              )}
+            </div>
+          )}
+
+          {totalResults === 0 && (
+            <div className="flex items-center justify-center py-8">
+              <span className="text-[12px] text-zinc-600">No results for "{globalQuery}"</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* ── ACCORDION VIEW ── */
+        <>
+
+        {/* ── SATELLITE SECTION ── */}
+        <div>
+          <button
+            onClick={() => toggleSection('satellites')}
+            className="w-full flex items-center gap-2 px-3.5 py-2.5 border-b border-zinc-800 hover:bg-zinc-800/30 transition-colors"
+          >
+            <span className="text-[11px] text-zinc-600">{expandedSections.has('satellites') ? '▾' : '▸'}</span>
+            <span className="font-display text-[12px] font-semibold tracking-[2px] text-orange-400 uppercase flex-1 text-left">Satellite</span>
+            <span className="font-mono text-[11px] text-zinc-500">{satStats.visible}/{satStats.tracked}</span>
+            <MasterToggle
+              allOn={allConstellationsOn}
+              noneOn={noConstellationsOn}
+              onToggle={() => allConstellationsOn ? onDisableAllConstellations() : onEnableAllConstellations()}
+            />
+          </button>
+
+          {expandedSections.has('satellites') && (
+            <div className="border-b border-zinc-800">
+              {Array.from(groupedConstellations.entries()).map(([cat, consts]) => {
+                const isExpanded = expandedCategories.has(cat)
+                return (
+                  <div key={cat}>
+                    <button
+                      onClick={() => toggleCategoryExpand(cat)}
+                      className="w-full flex items-center gap-2 px-3.5 py-1.5 border-b border-zinc-800/40 hover:bg-zinc-800/30 transition-colors"
+                    >
+                      <span className="text-[11px] text-zinc-600">{isExpanded ? '▾' : '▸'}</span>
+                      <span className="font-display text-[11px] font-semibold tracking-[1.5px] text-zinc-500 uppercase flex-1 text-left">
+                        {CATEGORY_LABELS[cat]}
+                      </span>
+                      <span className="font-mono text-[11px] text-zinc-600">{consts.length}</span>
+                    </button>
+
+                    {isExpanded && consts.map(c => {
+                      const isOn = toggles.get(c.id) ?? false
+                      const isLoading = loading.has(c.id)
+                      const sats = getSatellites(c.id)
+                      const isConstExpanded = expandedConstellations.has(c.id)
+                      const colorHex = `#${c.color.toString(16).padStart(6, '0')}`
+
+                      const filteredSats = sats
+
+                      return (
+                        <div key={c.id}>
+                          <div className="flex items-center border-b border-zinc-800/30">
+                            <button
+                              onClick={() => isOn && sats.length > 0 && toggleConstellationExpand(c.id)}
+                              className={cn(
+                                'flex-1 flex items-center gap-2 pl-6 pr-1 py-1 text-left transition-colors',
+                                isOn ? 'hover:bg-zinc-800/30' : '',
+                              )}
+                            >
+                              <span className="inline-block w-[6px] h-[6px] rounded-full flex-shrink-0" style={{ backgroundColor: isOn ? colorHex : '#3f3f46' }} />
+                              <span className={cn('font-display text-[12px] font-medium tracking-wide flex-1 truncate', isOn ? 'text-zinc-300' : 'text-zinc-600')}>
+                                {c.name}
+                              </span>
+                              {isLoading && <span className="text-[11px] text-zinc-600 animate-pulse">loading</span>}
+                              {!isLoading && sats.length > 0 && <span className="font-mono text-[11px] text-zinc-600">{sats.length}</span>}
+                              {isOn && sats.length > 0 && <span className="text-[11px] text-zinc-600">{isConstExpanded ? '▾' : '▸'}</span>}
+                            </button>
+                            <TypeToggle on={isOn} color={colorHex} onClick={() => onToggle(c.id)} />
+                          </div>
+
+                          {isConstExpanded && isOn && filteredSats.length > 0 && (
+                            <div className="max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
+                              {filteredSats.slice(0, 100).map(sat => {
+                                const pos = getPositions(c.id).find(p => p.noradId === sat.noradId)
+                                const isSelected = sat.noradId === selectedSatId
+                                return (
+                                  <button
+                                    key={sat.noradId}
+                                    onClick={() => onSelectSatellite(isSelected ? null : sat.noradId)}
+                                    className={cn(
+                                      'w-full flex items-center gap-2 pl-8 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
+                                      isSelected ? 'bg-orange-950/20 border-l-2 border-l-orange-500' : 'hover:bg-zinc-800/30',
+                                    )}
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <div className="font-mono text-[11px] text-zinc-400 truncate">{sat.name}</div>
+                                      <div className="font-mono text-[11px] text-zinc-600">{sat.noradId}</div>
+                                    </div>
+                                    {pos && (
+                                      <div className="flex flex-col items-end flex-shrink-0">
+                                        <span className="font-mono text-[11px] text-zinc-600">{pos.alt.toFixed(0)} km</span>
+                                        <span className="font-mono text-[11px] text-zinc-600">{pos.velocity.toFixed(1)} km/s</span>
+                                      </div>
+                                    )}
+                                  </button>
+                                )
+                              })}
+                              {filteredSats.length > 100 && (
+                                <div className="px-8 py-1 font-mono text-[11px] text-zinc-600">+{filteredSats.length - 100} more...</div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ── MARITIME SECTION ── */}
+        <div>
+          <button
+            onClick={() => toggleSection('maritime')}
+            className="w-full flex items-center gap-2 px-3.5 py-2.5 border-b border-zinc-800 hover:bg-zinc-800/30 transition-colors"
+          >
+            <span className="text-[11px] text-zinc-600">{expandedSections.has('maritime') ? '▾' : '▸'}</span>
+            <span className="font-display text-[12px] font-semibold tracking-[2px] text-cyan-400 uppercase flex-1 text-left">Maritime</span>
+            <span className={cn('inline-block w-1.5 h-1.5 rounded-full mr-1', vesselConnected ? 'bg-green-400' : 'bg-red-400')} />
+            <span className="font-mono text-[11px] text-zinc-500">{vesselCount}</span>
+            <MasterToggle
+              allOn={allVesselTypesOn}
+              noneOn={noVesselTypesOn}
+              onToggle={() => allVesselTypesOn ? onDisableAllVesselTypes() : onEnableAllVesselTypes()}
+            />
+          </button>
+
+          {expandedSections.has('maritime') && (
+            <div className="border-b border-zinc-800">
+              {VESSEL_TYPES.map(type => {
+                const typeVessels = vesselsByType.get(type) ?? []
+                const isOn = vesselTypeToggles.get(type) ?? true
+                const isExpanded = expandedVesselTypes.has(type)
+                const dotColor = VESSEL_TYPE_DOT_COLORS[type] ?? '#a1a1aa'
+
+                const filtered = typeVessels.sort((a, b) => b.lastUpdate - a.lastUpdate)
 
                 return (
-                  <div key={c.id}>
-                    {/* Constellation header */}
+                  <div key={type}>
                     <div className="flex items-center border-b border-zinc-800/40">
                       <button
-                        onClick={() => isOn && sats.length > 0 && toggleConstellationExpand(c.id)}
+                        onClick={() => isOn && typeVessels.length > 0 && toggleVesselTypeExpand(type)}
                         className={cn(
-                          'flex-1 flex items-center gap-2 pl-6 pr-1 py-1.5 text-left transition-colors',
+                          'flex-1 flex items-center gap-2 pl-4 pr-1 py-1.5 text-left transition-colors',
                           isOn ? 'hover:bg-zinc-800/30' : '',
                         )}
                       >
-                        <span
-                          className="inline-block w-[6px] h-[6px] rounded-full flex-shrink-0"
-                          style={{ backgroundColor: isOn ? colorHex : '#3f3f46' }}
-                        />
-                        <span className={cn(
-                          'font-display text-[13px] font-medium tracking-wide flex-1 truncate',
-                          isOn ? 'text-zinc-300' : 'text-zinc-600',
-                        )}>
-                          {c.name}
+                        <span className="inline-block w-[6px] h-[6px] rounded-full flex-shrink-0" style={{ backgroundColor: isOn ? dotColor : '#3f3f46' }} />
+                        <span className={cn('font-display text-[12px] font-medium tracking-wide flex-1', isOn ? 'text-zinc-300' : 'text-zinc-600')}>
+                          {VESSEL_TYPE_LABELS[type]}
                         </span>
-                        {isLoading && <span className="text-[12px] text-zinc-600 animate-pulse">loading</span>}
-                        {!isLoading && sats.length > 0 && (
-                          <span className="font-mono text-[13px] text-zinc-600">{sats.length}</span>
-                        )}
-                        {isOn && sats.length > 0 && (
-                          <span className="text-[13px] text-zinc-600">{isConstExpanded ? '▾' : '▸'}</span>
-                        )}
+                        <span className="font-mono text-[11px] text-zinc-600">{typeVessels.length}</span>
+                        {isOn && typeVessels.length > 0 && <span className="text-[11px] text-zinc-600">{isExpanded ? '▾' : '▸'}</span>}
                       </button>
-                      {/* Toggle checkbox */}
-                      <button
-                        onClick={() => onToggle(c.id)}
-                        className="px-2 py-1.5 flex-shrink-0"
-                      >
-                        <span className={cn(
-                          'inline-block w-3 h-3 rounded-sm border transition-all',
-                          isOn ? 'border-current' : 'border-zinc-600',
-                        )} style={isOn ? { backgroundColor: colorHex, borderColor: colorHex } : undefined}>
-                          {isOn && (
-                            <svg viewBox="0 0 12 12" className="w-full h-full" fill="none">
-                              <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          )}
-                        </span>
-                      </button>
+                      <TypeToggle on={isOn} color={dotColor} onClick={() => onToggleVesselType(type)} />
                     </div>
 
-                    {/* Satellite list */}
-                    {isConstExpanded && isOn && filteredSats.length > 0 && (
+                    {isExpanded && isOn && filtered.length > 0 && (
                       <div className="max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
-                        {filteredSats.slice(0, 100).map(sat => {
-                          const pos = getPositions(c.id).find(p => p.noradId === sat.noradId)
-                          const isSelected = sat.noradId === selectedSatId
+                        {filtered.slice(0, 200).map(vessel => {
+                          const isSelected = vessel.mmsi === selectedMmsi
                           return (
                             <button
-                              key={sat.noradId}
-                              onClick={() => onSelectSatellite(isSelected ? null : sat.noradId)}
+                              key={vessel.mmsi}
+                              onClick={() => onSelectVessel(isSelected ? null : vessel.mmsi)}
                               className={cn(
-                                'w-full flex items-center gap-2 pl-8 pr-3 py-1 text-left border-b border-zinc-800/30 transition-colors',
-                                isSelected ? 'bg-orange-950/20 border-l-2 border-l-orange-500' : 'hover:bg-zinc-800/30',
+                                'w-full flex items-center gap-2 pl-7 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
+                                isSelected ? 'bg-cyan-950/20 border-l-2 border-l-cyan-500' : 'hover:bg-zinc-800/30',
                               )}
                             >
                               <div className="flex-1 min-w-0">
-                                <div className="font-mono text-[12px] text-zinc-400 truncate">{sat.name}</div>
-                                <div className="font-mono text-[12px] text-zinc-600">{sat.noradId}</div>
-                              </div>
-                              {pos && (
-                                <div className="flex flex-col items-end flex-shrink-0">
-                                  <span className="font-mono text-[12px] text-zinc-600">{pos.alt.toFixed(0)} km</span>
-                                  <span className="font-mono text-[12px] text-zinc-600">{pos.velocity.toFixed(1)} km/s</span>
+                                <div className="font-mono text-[11px] text-zinc-400 truncate">{vessel.name}</div>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  <span className="font-mono text-[10px] text-zinc-600">{vessel.mmsi}</span>
+                                  <span className={cn(
+                                    'font-display text-[9px] font-semibold tracking-[0.5px] uppercase px-1 py-px rounded-sm border',
+                                    VESSEL_TYPE_COLORS[vessel.type] || VESSEL_TYPE_COLORS.other,
+                                  )}>
+                                    {vessel.type}
+                                  </span>
                                 </div>
-                              )}
+                              </div>
+                              <div className="flex flex-col items-end flex-shrink-0">
+                                <span className="font-mono text-[11px] text-zinc-600">{vessel.speed.toFixed(1)} kn</span>
+                                <span className="font-mono text-[11px] text-zinc-600">{vessel.course.toFixed(0)}°</span>
+                              </div>
                             </button>
                           )
                         })}
-                        {filteredSats.length > 100 && (
-                          <div className="px-8 py-1.5 font-mono text-[13px] text-zinc-600">
-                            +{filteredSats.length - 100} more…
-                          </div>
+                        {filtered.length > 200 && (
+                          <div className="px-7 py-1 font-mono text-[11px] text-zinc-600">+{filtered.length - 200} more...</div>
                         )}
                       </div>
                     )}
@@ -565,11 +658,103 @@ export function LeftPanel({
                 )
               })}
             </div>
-          )
-        })}
-      </div>
-      </>
+          )}
+        </div>
+
+        {/* ── AIRCRAFT SECTION ── */}
+        <div>
+          <button
+            onClick={() => toggleSection('aircraft')}
+            className="w-full flex items-center gap-2 px-3.5 py-2.5 border-b border-zinc-800 hover:bg-zinc-800/30 transition-colors"
+          >
+            <span className="text-[11px] text-zinc-600">{expandedSections.has('aircraft') ? '▾' : '▸'}</span>
+            <span className="font-display text-[12px] font-semibold tracking-[2px] text-yellow-400 uppercase flex-1 text-left">Aircraft</span>
+            <span className={cn('inline-block w-1.5 h-1.5 rounded-full mr-1', flightConnected ? 'bg-green-400' : 'bg-red-400')} />
+            <span className="font-mono text-[11px] text-zinc-500">{flightCount}</span>
+            <MasterToggle
+              allOn={allFlightTypesOn}
+              noneOn={noFlightTypesOn}
+              onToggle={() => allFlightTypesOn ? onDisableAllFlightTypes() : onEnableAllFlightTypes()}
+            />
+          </button>
+
+          {expandedSections.has('aircraft') && (
+            <div className="border-b border-zinc-800">
+              {FLIGHT_TYPES.map(type => {
+                const typeFlights = flightsByType.get(type) ?? []
+                const isOn = flightTypeToggles.get(type) ?? true
+                const isExpanded = expandedFlightTypes.has(type)
+                const dotColor = FLIGHT_TYPE_DOT_COLORS[type] ?? '#a1a1aa'
+
+                const filtered = typeFlights.sort((a, b) => a.callsign.localeCompare(b.callsign))
+
+                return (
+                  <div key={type}>
+                    <div className="flex items-center border-b border-zinc-800/40">
+                      <button
+                        onClick={() => isOn && typeFlights.length > 0 && toggleFlightTypeExpand(type)}
+                        className={cn(
+                          'flex-1 flex items-center gap-2 pl-4 pr-1 py-1.5 text-left transition-colors',
+                          isOn ? 'hover:bg-zinc-800/30' : '',
+                        )}
+                      >
+                        <span className="inline-block w-[6px] h-[6px] rounded-full flex-shrink-0" style={{ backgroundColor: isOn ? dotColor : '#3f3f46' }} />
+                        <span className={cn('font-display text-[12px] font-medium tracking-wide flex-1', isOn ? 'text-zinc-300' : 'text-zinc-600')}>
+                          {FLIGHT_TYPE_LABELS[type]}
+                        </span>
+                        <span className="font-mono text-[11px] text-zinc-600">{typeFlights.length}</span>
+                        {isOn && typeFlights.length > 0 && <span className="text-[11px] text-zinc-600">{isExpanded ? '▾' : '▸'}</span>}
+                      </button>
+                      <TypeToggle on={isOn} color={dotColor} onClick={() => onToggleFlightType(type)} />
+                    </div>
+
+                    {isExpanded && isOn && filtered.length > 0 && (
+                      <div className="max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
+                        {filtered.slice(0, 200).map(flight => {
+                          const isSelected = flight.icao24 === selectedIcao
+                          return (
+                            <button
+                              key={flight.icao24}
+                              onClick={() => onSelectFlight(isSelected ? null : flight.icao24)}
+                              className={cn(
+                                'w-full flex items-center gap-2 pl-7 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
+                                isSelected ? 'bg-yellow-950/20 border-l-2 border-l-yellow-500' : 'hover:bg-zinc-800/30',
+                              )}
+                            >
+                              <div className="flex-1 min-w-0">
+                                <div className="font-mono text-[11px] text-zinc-400 truncate">{flight.callsign}</div>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  <span className="font-mono text-[10px] text-zinc-600">{flight.icao24.toUpperCase()}</span>
+                                  <span className={cn(
+                                    'font-display text-[9px] font-semibold tracking-[0.5px] uppercase px-1 py-px rounded-sm border',
+                                    FLIGHT_TYPE_COLORS[flight.type] || FLIGHT_TYPE_COLORS.other,
+                                  )}>
+                                    {flight.type}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex flex-col items-end flex-shrink-0">
+                                <span className="font-mono text-[11px] text-zinc-600">FL{Math.round(flight.altitude * 3.28084 / 100)}</span>
+                                <span className="font-mono text-[11px] text-zinc-600">{flight.heading.toFixed(0)}°</span>
+                              </div>
+                            </button>
+                          )
+                        })}
+                        {filtered.length > 200 && (
+                          <div className="px-7 py-1 font-mono text-[11px] text-zinc-600">+{filtered.length - 200} more...</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        </>
       )}
+      </div>
     </aside>
   )
 }

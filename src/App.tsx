@@ -5,10 +5,12 @@ import { LeftPanel } from '@/components/panels/LeftPanel'
 import { RightPanel } from '@/components/panels/RightPanel'
 import { MapboxGlobeView } from '@/components/globe/MapboxGlobeView'
 import { useConstellationToggles } from '@/hooks/useConstellationToggles'
+import { useVesselTypeToggles } from '@/hooks/useVesselTypeToggles'
+import { useFlightTypeToggles } from '@/hooks/useFlightTypeToggles'
 import { useSatellites } from '@/hooks/useSatellites'
 import { useVessels } from '@/hooks/useVessels'
 import { useFlights } from '@/hooks/useFlights'
-import type { NavView, TrackingMode } from '@/types'
+import type { NavView } from '@/types'
 
 export default function App() {
   const sessionStart = useRef(Date.now()).current
@@ -16,8 +18,9 @@ export default function App() {
   const [selectedSatId, setSelectedSatId] = useState<number | null>(null)
   const [selectedMmsi, setSelectedMmsi] = useState<number | null>(null)
   const [selectedIcao, setSelectedIcao] = useState<string | null>(null)
-  const [trackingMode, setTrackingMode] = useState<TrackingMode>('satellites')
-  const { toggles, toggle } = useConstellationToggles()
+  const { toggles, toggle, enableAll: enableAllConstellations, disableAll: disableAllConstellations } = useConstellationToggles()
+  const { toggles: vesselTypeToggles, toggle: toggleVesselType, enableAll: enableAllVesselTypes, disableAll: disableAllVesselTypes } = useVesselTypeToggles()
+  const { toggles: flightTypeToggles, toggle: toggleFlightType, enableAll: enableAllFlightTypes, disableAll: disableAllFlightTypes } = useFlightTypeToggles()
   const { version, loading, getPositions, getSatellites, getStats } = useSatellites(toggles)
   const { version: vesselVersion, vessels, connected: vesselConnected, vesselCount } = useVessels(true)
   const { version: flightVersion, flights, connected: flightConnected, flightCount } = useFlights(true)
@@ -75,26 +78,34 @@ export default function App() {
       <LeftPanel
         toggles={toggles}
         onToggle={toggle}
+        onEnableAllConstellations={enableAllConstellations}
+        onDisableAllConstellations={disableAllConstellations}
         getSatellites={getSatellites}
         getPositions={getPositions}
         version={version}
         loading={loading}
         selectedSatId={selectedSatId}
         onSelectSatellite={handleSelectSatellite}
-        trackingMode={trackingMode}
-        onTrackingModeChange={setTrackingMode}
         vessels={vessels}
         vesselCount={vesselCount}
         vesselConnected={vesselConnected}
         vesselVersion={vesselVersion}
         selectedMmsi={selectedMmsi}
         onSelectVessel={handleSelectVessel}
+        vesselTypeToggles={vesselTypeToggles}
+        onToggleVesselType={toggleVesselType}
+        onEnableAllVesselTypes={enableAllVesselTypes}
+        onDisableAllVesselTypes={disableAllVesselTypes}
         flights={flights}
         flightCount={flightCount}
         flightConnected={flightConnected}
         flightVersion={flightVersion}
         selectedIcao={selectedIcao}
         onSelectFlight={handleSelectFlight}
+        flightTypeToggles={flightTypeToggles}
+        onToggleFlightType={toggleFlightType}
+        onEnableAllFlightTypes={enableAllFlightTypes}
+        onDisableAllFlightTypes={disableAllFlightTypes}
       />
       {activeView === 'Globe' && (
         <MapboxGlobeView
@@ -103,8 +114,10 @@ export default function App() {
           version={version}
           vessels={vessels}
           vesselVersion={vesselVersion}
+          vesselTypeToggles={vesselTypeToggles}
           flights={flights}
           flightVersion={flightVersion}
+          flightTypeToggles={flightTypeToggles}
           selectedSatId={selectedSatId}
           onSatelliteClick={handleSelectSatellite}
           selectedMmsi={selectedMmsi}
