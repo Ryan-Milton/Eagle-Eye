@@ -1,9 +1,9 @@
 import type { VesselRecord, VesselType } from '@/types'
 
-const PROXY_URL = 'ws://localhost:4001'
+const PROXY_URL = 'ws://localhost:4000/ws/ais'
 const THROTTLE_MS = 2000
 
-function mapShipType(typeCode: number): VesselType {
+export function mapShipType(typeCode: number): VesselType {
   if (typeCode >= 70 && typeCode <= 79) return 'cargo'
   if (typeCode >= 80 && typeCode <= 89) return 'tanker'
   if (typeCode >= 60 && typeCode <= 69) return 'passenger'

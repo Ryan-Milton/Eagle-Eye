@@ -1,4 +1,4 @@
-const PROXY = 'http://localhost:4003'
+const PROXY = 'http://localhost:4000/api/hexdb'
 
 export interface HexdbAircraft {
   ModeS: string

@@ -1,144 +1,29 @@
-import { useState, useRef, useCallback } from 'react'
+import { useAppStore } from '@/stores/app-store'
+import { useSatelliteInit } from '@/hooks/useSatelliteInit'
+import { useVesselInit } from '@/hooks/useVesselInit'
+import { useFlightInit } from '@/hooks/useFlightInit'
+import { useWeatherInit } from '@/hooks/useWeatherInit'
 import { TopBar } from '@/components/panels/TopBar'
 import { BottomBar } from '@/components/panels/BottomBar'
-import { LeftPanel } from '@/components/panels/LeftPanel'
+import { LeftPanel } from '@/components/panels/left/LeftPanel'
 import { RightPanel } from '@/components/panels/RightPanel'
 import { MapboxGlobeView } from '@/components/globe/MapboxGlobeView'
-import { useConstellationToggles } from '@/hooks/useConstellationToggles'
-import { useVesselTypeToggles } from '@/hooks/useVesselTypeToggles'
-import { useFlightTypeToggles } from '@/hooks/useFlightTypeToggles'
-import { useSatellites } from '@/hooks/useSatellites'
-import { useVessels } from '@/hooks/useVessels'
-import { useFlights } from '@/hooks/useFlights'
-import { useFlightInfo } from '@/hooks/useFlightInfo'
-import type { NavView } from '@/types'
 
 export default function App() {
-  const sessionStart = useRef(Date.now()).current
-  const [activeView, setActiveView] = useState<NavView>('Globe')
-  const [selectedSatId, setSelectedSatId] = useState<number | null>(null)
-  const [selectedMmsi, setSelectedMmsi] = useState<number | null>(null)
-  const [selectedIcao, setSelectedIcao] = useState<string | null>(null)
-  const { toggles, toggle, enableAll: enableAllConstellations, disableAll: disableAllConstellations } = useConstellationToggles()
-  const { toggles: vesselTypeToggles, toggle: toggleVesselType, enableAll: enableAllVesselTypes, disableAll: disableAllVesselTypes } = useVesselTypeToggles()
-  const { toggles: flightTypeToggles, toggle: toggleFlightType, enableAll: enableAllFlightTypes, disableAll: disableAllFlightTypes } = useFlightTypeToggles()
-  const { version, loading, getPositions, getSatellites, getStats } = useSatellites(toggles)
-  const { version: vesselVersion, vessels, connected: vesselConnected, vesselCount, vesselHistory } = useVessels(true)
-  const { version: flightVersion, flights, connected: flightConnected, flightCount, flightHistory } = useFlights(true)
-  const selectedFlight = selectedIcao ? flights.get(selectedIcao) ?? null : null
-  const { info: flightInfo, loading: flightInfoLoading } = useFlightInfo(selectedIcao, selectedFlight?.callsign ?? null)
+  useSatelliteInit()
+  useVesselInit()
+  useFlightInit()
+  useWeatherInit()
 
-  // Mutual exclusion: selecting one type clears the others
-  const handleSelectSatellite = useCallback((noradId: number | null) => {
-    setSelectedSatId(noradId)
-    if (noradId !== null) { setSelectedMmsi(null); setSelectedIcao(null) }
-  }, [])
-
-  const handleSelectVessel = useCallback((mmsi: number | null) => {
-    setSelectedMmsi(mmsi)
-    if (mmsi !== null) { setSelectedSatId(null); setSelectedIcao(null) }
-  }, [])
-
-  const handleSelectFlight = useCallback((icao: string | null) => {
-    setSelectedIcao(icao)
-    if (icao !== null) { setSelectedSatId(null); setSelectedMmsi(null) }
-  }, [])
-
-  // Find selected records
-  const selectedVessel = selectedMmsi ? vessels.get(selectedMmsi) ?? null : null
-
-  // Find selected satellite record + position
-  const selectedSatellite = selectedSatId ? (() => {
-    for (const [, sats] of Object.entries([...toggles.keys()])) {
-      void sats
-    }
-    // Search all loaded constellations
-    const allSats = [...toggles.keys()].flatMap(id => getSatellites(id))
-    return allSats.find(s => s.noradId === selectedSatId) ?? null
-  })() : null
-
-  const selectedPosition = selectedSatId ? (() => {
-    for (const id of toggles.keys()) {
-      const pos = getPositions(id).find(p => p.noradId === selectedSatId)
-      if (pos) return pos
-    }
-    return null
-  })() : null
+  const activeView = useAppStore(s => s.activeView)
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-zinc-950 text-zinc-50">
-      <TopBar
-        activeView={activeView}
-        onViewChange={setActiveView}
-        sessionStart={sessionStart}
-        getStats={getStats}
-        vesselCount={vesselCount}
-        vesselConnected={vesselConnected}
-        flightCount={flightCount}
-        flightConnected={flightConnected}
-      />
-      <LeftPanel
-        toggles={toggles}
-        onToggle={toggle}
-        onEnableAllConstellations={enableAllConstellations}
-        onDisableAllConstellations={disableAllConstellations}
-        getSatellites={getSatellites}
-        getPositions={getPositions}
-        version={version}
-        loading={loading}
-        selectedSatId={selectedSatId}
-        onSelectSatellite={handleSelectSatellite}
-        vessels={vessels}
-        vesselCount={vesselCount}
-        vesselConnected={vesselConnected}
-        vesselVersion={vesselVersion}
-        selectedMmsi={selectedMmsi}
-        onSelectVessel={handleSelectVessel}
-        vesselTypeToggles={vesselTypeToggles}
-        onToggleVesselType={toggleVesselType}
-        onEnableAllVesselTypes={enableAllVesselTypes}
-        onDisableAllVesselTypes={disableAllVesselTypes}
-        flights={flights}
-        flightCount={flightCount}
-        flightConnected={flightConnected}
-        flightVersion={flightVersion}
-        selectedIcao={selectedIcao}
-        onSelectFlight={handleSelectFlight}
-        flightTypeToggles={flightTypeToggles}
-        onToggleFlightType={toggleFlightType}
-        onEnableAllFlightTypes={enableAllFlightTypes}
-        onDisableAllFlightTypes={disableAllFlightTypes}
-      />
-      {activeView === 'Globe' && (
-        <MapboxGlobeView
-          toggles={toggles}
-          getPositions={getPositions}
-          version={version}
-          vessels={vessels}
-          vesselVersion={vesselVersion}
-          vesselTypeToggles={vesselTypeToggles}
-          flights={flights}
-          flightVersion={flightVersion}
-          flightTypeToggles={flightTypeToggles}
-          selectedSatId={selectedSatId}
-          onSatelliteClick={handleSelectSatellite}
-          selectedMmsi={selectedMmsi}
-          onVesselClick={handleSelectVessel}
-          selectedIcao={selectedIcao}
-          onFlightClick={handleSelectFlight}
-          flightHistory={flightHistory}
-          vesselHistory={vesselHistory}
-        />
-      )}
-      <RightPanel
-        satellite={selectedSatellite}
-        position={selectedPosition}
-        vessel={selectedVessel}
-        flight={selectedFlight}
-        flightInfo={flightInfo}
-        flightInfoLoading={flightInfoLoading}
-      />
-      <BottomBar sessionStart={sessionStart} />
+      <TopBar />
+      <LeftPanel />
+      {activeView === 'Globe' && <MapboxGlobeView />}
+      <RightPanel />
+      <BottomBar />
     </div>
   )
 }

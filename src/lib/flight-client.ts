@@ -1,6 +1,6 @@
 import type { FlightRecord, FlightType } from '@/types'
 
-const PROXY_URL = 'ws://localhost:4002'
+const PROXY_URL = 'ws://localhost:4000/ws/flights'
 const THROTTLE_MS = 2000
 
 export class FlightClient {

@@ -4,30 +4,16 @@ import 'mapbox-gl/dist/mapbox-gl.css'
 import { cn } from '@/lib/utils'
 import { CONSTELLATIONS } from '@/data/constellations'
 import { displayRadius } from '@/lib/propagation-kernel'
+import { useSatelliteStore } from '@/stores/satellite-store'
+import { useVesselStore } from '@/stores/vessel-store'
+import { useFlightStore } from '@/stores/flight-store'
+import { useWeatherStore } from '@/stores/weather-store'
+import { useSelectionStore } from '@/stores/selection-store'
+import { WEATHER_TYPE_DOT_COLORS } from '@/lib/colors'
+import type { ConstellationId, SatellitePosition, VesselRecord, FlightRecord, VesselType, FlightType, WeatherEvent, WeatherEventType } from '@/types'
 import type { PositionHistory } from '@/lib/position-history'
-import type { ConstellationId, SatellitePosition, VesselRecord, FlightRecord, VesselType, FlightType } from '@/types'
 
 type MapStyle = 'dark' | 'light'
-
-interface MapboxGlobeViewProps {
-  toggles: Map<ConstellationId, boolean>
-  getPositions: (id: ConstellationId) => SatellitePosition[]
-  version: number
-  vessels: Map<number, VesselRecord>
-  vesselVersion: number
-  vesselTypeToggles: Map<VesselType, boolean>
-  flights: Map<string, FlightRecord>
-  flightVersion: number
-  flightTypeToggles: Map<FlightType, boolean>
-  selectedSatId: number | null
-  onSatelliteClick: (noradId: number | null) => void
-  selectedMmsi: number | null
-  onVesselClick: (mmsi: number | null) => void
-  selectedIcao: string | null
-  onFlightClick: (icao: string | null) => void
-  flightHistory: PositionHistory<string>
-  vesselHistory: PositionHistory<number>
-}
 
 const STYLES: Record<MapStyle, string> = {
   dark: 'mapbox://styles/mapbox/dark-v11',
@@ -55,12 +41,10 @@ const VESSEL_COLOR = '#22d3ee'
 const FLIGHT_COLOR = '#eab308'
 const EARTH_RADIUS_M = 6_371_000
 
-// Convert hex number (0xRRGGBB) to CSS hex string
 function hexToString(hex: number): string {
   return '#' + hex.toString(16).padStart(6, '0')
 }
 
-// Build color lookup map for constellations
 const CONSTELLATION_COLORS = new Map<ConstellationId, string>(
   CONSTELLATIONS.map(c => [c.id, hexToString(c.color)])
 )
@@ -136,6 +120,47 @@ function buildFlightGeoJSON(
   return { type: 'FeatureCollection', features }
 }
 
+function buildWeatherGeoJSON(
+  events: Map<string, WeatherEvent>,
+  selectedEventId: string | null,
+  typeToggles: Map<WeatherEventType, boolean>,
+): GeoJSONFeatureCollection {
+  const features: GeoJSON.Feature<GeoJSON.Point>[] = []
+  for (const [id, e] of events) {
+    if (typeToggles.get(e.type) === false) continue
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [e.lon, e.lat] },
+      properties: {
+        eventId: id,
+        color: WEATHER_TYPE_DOT_COLORS[e.type] ?? '#a1a1aa',
+        selected: id === selectedEventId,
+        magnitude: e.magnitude,
+        type: e.type,
+      },
+    })
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+function buildWeatherAlertGeoJSON(
+  events: Map<string, WeatherEvent>,
+  typeToggles: Map<WeatherEventType, boolean>,
+): GeoJSON.FeatureCollection {
+  const features: GeoJSON.Feature[] = []
+  for (const [id, e] of events) {
+    if (typeToggles.get(e.type) === false) continue
+    if (!e.geometry) continue
+    if (e.geometry.type !== 'Polygon' && e.geometry.type !== 'MultiPolygon') continue
+    features.push({
+      type: 'Feature',
+      geometry: e.geometry,
+      properties: { eventId: id, type: e.type },
+    })
+  }
+  return { type: 'FeatureCollection', features }
+}
+
 function buildTrailGeoJSON(
   flightHistory: PositionHistory<string>,
   vesselHistory: PositionHistory<number>,
@@ -168,7 +193,6 @@ function buildTrailGeoJSON(
   return { type: 'FeatureCollection', features }
 }
 
-/** Create a small white filled-circle image for use as an SDF icon */
 function createDotImage(size = 16): ImageData {
   const canvas = document.createElement('canvas')
   canvas.width = size
@@ -182,15 +206,12 @@ function createDotImage(size = 16): ImageData {
 }
 
 function addEntityLayers(map: mapboxgl.Map) {
-  // Guard against double-invocation (React strict mode)
   if (map.getSource('entity-trail')) return
 
-  // Add SDF dot icon for satellite symbol layer
   if (!map.hasImage('sat-dot')) {
     map.addImage('sat-dot', createDotImage(16), { sdf: true })
   }
 
-  // Trail source + layer (rendered below entity layers)
   map.addSource('entity-trail', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
@@ -206,7 +227,6 @@ function addEntityLayers(map: mapboxgl.Map) {
     },
   })
 
-  // Satellites source + symbol layer (elevated via symbol-z-offset)
   map.addSource('satellites', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
@@ -228,7 +248,6 @@ function addEntityLayers(map: mapboxgl.Map) {
     } as mapboxgl.SymbolLayerSpecification['paint'],
   })
 
-  // Vessels source + layer
   map.addSource('vessels', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
@@ -246,7 +265,6 @@ function addEntityLayers(map: mapboxgl.Map) {
     },
   })
 
-  // Flights source + layer
   map.addSource('flights', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
@@ -263,41 +281,84 @@ function addEntityLayers(map: mapboxgl.Map) {
       'circle-stroke-color': FLIGHT_COLOR,
     },
   })
+
+  // Weather alert polygons
+  map.addSource('weather-alerts', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+  })
+  map.addLayer({
+    id: 'weather-alerts-fill',
+    type: 'fill',
+    source: 'weather-alerts',
+    paint: {
+      'fill-color': '#fb7185',
+      'fill-opacity': 0.15,
+    },
+  })
+  map.addLayer({
+    id: 'weather-alerts-outline',
+    type: 'line',
+    source: 'weather-alerts',
+    paint: {
+      'line-color': '#fb7185',
+      'line-width': 1.5,
+      'line-opacity': 0.6,
+    },
+  })
+
+  // Weather event points
+  map.addSource('weather-events', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+  })
+  map.addLayer({
+    id: 'weather-events-layer',
+    type: 'circle',
+    source: 'weather-events',
+    paint: {
+      'circle-radius': [
+        'case',
+        ['get', 'selected'], 8,
+        ['==', ['get', 'type'], 'earthquake'],
+        ['interpolate', ['linear'], ['coalesce', ['get', 'magnitude'], 2], 0, 3, 5, 8, 9, 12],
+        5,
+      ],
+      'circle-color': ['get', 'color'],
+      'circle-opacity': ['case', ['get', 'selected'], 1, 0.7],
+      'circle-stroke-width': ['case', ['get', 'selected'], 2, 0],
+      'circle-stroke-color': ['get', 'color'],
+    },
+  })
 }
 
-const ENTITY_LAYERS = ['satellites-layer', 'vessels-layer', 'flights-layer'] as const
+const ENTITY_LAYERS = ['satellites-layer', 'vessels-layer', 'flights-layer', 'weather-events-layer'] as const
 
-export function MapboxGlobeView({
-  toggles,
-  getPositions,
-  version,
-  vessels,
-  vesselVersion,
-  vesselTypeToggles,
-  flights,
-  flightVersion,
-  flightTypeToggles,
-  selectedSatId,
-  onSatelliteClick,
-  selectedMmsi,
-  onVesselClick,
-  selectedIcao,
-  onFlightClick,
-  flightHistory,
-  vesselHistory,
-}: MapboxGlobeViewProps) {
+export function MapboxGlobeView() {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const [mapStyle, setMapStyle] = useState<MapStyle>('dark')
   const layersReadyRef = useRef(false)
 
-  // Store callbacks in refs so click handlers always see latest
-  const onSatelliteClickRef = useRef(onSatelliteClick)
-  onSatelliteClickRef.current = onSatelliteClick
-  const onVesselClickRef = useRef(onVesselClick)
-  onVesselClickRef.current = onVesselClick
-  const onFlightClickRef = useRef(onFlightClick)
-  onFlightClickRef.current = onFlightClick
+  // Read from stores
+  const toggles = useSatelliteStore(s => s.toggles)
+  const getPositions = useSatelliteStore(s => s.getPositions)
+  const satVersion = useSatelliteStore(s => s.version)
+  const vessels = useVesselStore(s => s.vessels)
+  const vesselVersion = useVesselStore(s => s.version)
+  const vesselTypeToggles = useVesselStore(s => s.typeToggles)
+  const vesselHistory = useVesselStore(s => s.history)
+  const flights = useFlightStore(s => s.flights)
+  const flightVersion = useFlightStore(s => s.version)
+  const flightTypeToggles = useFlightStore(s => s.typeToggles)
+  const flightHistory = useFlightStore(s => s.history)
+  const selectedSatId = useSelectionStore(s => s.selectedSatId)
+  const weatherEvents = useWeatherStore(s => s.events)
+  const weatherVersion = useWeatherStore(s => s.version)
+  const weatherTypeToggles = useWeatherStore(s => s.typeToggles)
+  const selectedMmsi = useSelectionStore(s => s.selectedMmsi)
+  const selectedIcao = useSelectionStore(s => s.selectedIcao)
+  const selectedEventId = useSelectionStore(s => s.selectedEventId)
 
   // Initialize map once
   useEffect(() => {
@@ -319,37 +380,39 @@ export function MapboxGlobeView({
       layersReadyRef.current = true
     })
 
-    // Click handlers — flights on top, then vessels, then satellites
+    // Click handlers use store actions directly (stable references)
     map.on('click', 'flights-layer', (e) => {
       if (e.features?.[0]?.properties?.icao24) {
         e.originalEvent.stopPropagation()
-        onFlightClickRef.current(e.features[0].properties.icao24)
+        useSelectionStore.getState().selectFlight(e.features[0].properties.icao24)
       }
     })
     map.on('click', 'vessels-layer', (e) => {
       if (e.features?.[0]?.properties?.mmsi) {
         e.originalEvent.stopPropagation()
-        onVesselClickRef.current(e.features[0].properties.mmsi)
+        useSelectionStore.getState().selectVessel(e.features[0].properties.mmsi)
       }
     })
     map.on('click', 'satellites-layer', (e) => {
       if (e.features?.[0]?.properties?.noradId) {
         e.originalEvent.stopPropagation()
-        onSatelliteClickRef.current(e.features[0].properties.noradId)
+        useSelectionStore.getState().selectSatellite(e.features[0].properties.noradId)
+      }
+    })
+    map.on('click', 'weather-events-layer', (e) => {
+      if (e.features?.[0]?.properties?.eventId) {
+        e.originalEvent.stopPropagation()
+        useSelectionStore.getState().selectEvent(e.features[0].properties.eventId)
       }
     })
 
-    // Click on empty space clears selections
     map.on('click', (e) => {
       const features = map.queryRenderedFeatures(e.point, { layers: [...ENTITY_LAYERS] })
       if (features.length === 0) {
-        onSatelliteClickRef.current(null)
-        onVesselClickRef.current(null)
-        onFlightClickRef.current(null)
+        useSelectionStore.getState().clearAll()
       }
     })
 
-    // Pointer cursor on hover
     for (const layer of ENTITY_LAYERS) {
       map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer' })
       map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = '' })
@@ -365,28 +428,22 @@ export function MapboxGlobeView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Handle style changes without destroying the map
   const handleStyleChange = useCallback((style: MapStyle) => {
     setMapStyle(style)
     const map = mapRef.current
     if (!map) return
-
     layersReadyRef.current = false
     map.setStyle(STYLES[style])
-    // style.load event in the init useEffect re-adds layers
   }, [])
 
-  // Re-add layers + fog after style swap
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-
     const onStyleLoad = () => {
       map.setFog(FOG_CONFIGS[mapStyle])
       addEntityLayers(map)
       layersReadyRef.current = true
     }
-
     map.on('style.load', onStyleLoad)
     return () => { map.off('style.load', onStyleLoad) }
   }, [mapStyle])
@@ -397,7 +454,7 @@ export function MapboxGlobeView({
     if (!map || !layersReadyRef.current) return
     const src = map.getSource('satellites') as mapboxgl.GeoJSONSource | undefined
     if (src) src.setData(buildSatelliteGeoJSON(toggles, getPositions, selectedSatId))
-  }, [version, toggles, getPositions, selectedSatId])
+  }, [satVersion, toggles, getPositions, selectedSatId])
 
   // Sync vessel data
   useEffect(() => {
@@ -415,6 +472,16 @@ export function MapboxGlobeView({
     if (src) src.setData(buildFlightGeoJSON(flights, selectedIcao, flightTypeToggles))
   }, [flightVersion, flights, selectedIcao, flightTypeToggles])
 
+  // Sync weather data
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+    const src = map.getSource('weather-events') as mapboxgl.GeoJSONSource | undefined
+    if (src) src.setData(buildWeatherGeoJSON(weatherEvents, selectedEventId, weatherTypeToggles))
+    const alertSrc = map.getSource('weather-alerts') as mapboxgl.GeoJSONSource | undefined
+    if (alertSrc) alertSrc.setData(buildWeatherAlertGeoJSON(weatherEvents, weatherTypeToggles))
+  }, [weatherVersion, weatherEvents, selectedEventId, weatherTypeToggles])
+
   // Sync trail data
   useEffect(() => {
     const map = mapRef.current
@@ -423,11 +490,10 @@ export function MapboxGlobeView({
     if (src) src.setData(buildTrailGeoJSON(flightHistory, vesselHistory, selectedIcao, selectedMmsi))
   }, [selectedIcao, selectedMmsi, flightVersion, vesselVersion, flightHistory, vesselHistory])
 
-  // Also sync data when layers become ready after style change
+  // Sync all data after style change
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-
     const syncAll = () => {
       const satSrc = map.getSource('satellites') as mapboxgl.GeoJSONSource | undefined
       if (satSrc) satSrc.setData(buildSatelliteGeoJSON(toggles, getPositions, selectedSatId))
@@ -437,11 +503,14 @@ export function MapboxGlobeView({
       if (flightSrc) flightSrc.setData(buildFlightGeoJSON(flights, selectedIcao, flightTypeToggles))
       const trailSrc = map.getSource('entity-trail') as mapboxgl.GeoJSONSource | undefined
       if (trailSrc) trailSrc.setData(buildTrailGeoJSON(flightHistory, vesselHistory, selectedIcao, selectedMmsi))
+      const weatherSrc = map.getSource('weather-events') as mapboxgl.GeoJSONSource | undefined
+      if (weatherSrc) weatherSrc.setData(buildWeatherGeoJSON(weatherEvents, selectedEventId, weatherTypeToggles))
+      const alertSrc = map.getSource('weather-alerts') as mapboxgl.GeoJSONSource | undefined
+      if (alertSrc) alertSrc.setData(buildWeatherAlertGeoJSON(weatherEvents, weatherTypeToggles))
     }
-
     map.on('style.load', syncAll)
     return () => { map.off('style.load', syncAll) }
-  }, [toggles, getPositions, selectedSatId, version, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory])
+  }, [toggles, getPositions, selectedSatId, satVersion, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory, weatherEvents, selectedEventId, weatherVersion, weatherTypeToggles])
 
   return (
     <div className="fixed top-[46px] left-64 right-[272px] bottom-[34px]">

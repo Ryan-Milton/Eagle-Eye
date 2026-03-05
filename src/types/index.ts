@@ -102,6 +102,36 @@ export interface FlightRecord {
   lastUpdate: number     // timestamp ms
 }
 
+export type WeatherEventType = 'earthquake' | 'wildfire' | 'volcano' | 'storm' | 'flood' | 'iceberg' | 'drought' | 'alert'
+
+export const WEATHER_EVENT_TYPES: WeatherEventType[] = ['earthquake', 'wildfire', 'volcano', 'storm', 'flood', 'iceberg', 'drought', 'alert']
+
+export const WEATHER_EVENT_LABELS: Record<WeatherEventType, string> = {
+  earthquake: 'Earthquake',
+  wildfire: 'Wildfire',
+  volcano: 'Volcano',
+  storm: 'Storm',
+  flood: 'Flood',
+  iceberg: 'Iceberg',
+  drought: 'Drought',
+  alert: 'Alert',
+}
+
+export interface WeatherEvent {
+  id: string
+  type: WeatherEventType
+  title: string
+  description: string
+  lat: number
+  lon: number
+  magnitude: number | null
+  geometry: GeoJSON.Geometry | null
+  source: 'usgs' | 'eonet' | 'nws'
+  time: number
+  expires: number | null
+  lastUpdate: number
+}
+
 export interface VesselRecord {
   mmsi: number
   name: string

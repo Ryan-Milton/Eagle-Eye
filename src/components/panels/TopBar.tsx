@@ -1,23 +1,25 @@
 import { Pip } from '@/components/ui/Pip'
 import { useClock } from '@/hooks/useClock'
+import { useAppStore } from '@/stores/app-store'
+import { useSatelliteStore } from '@/stores/satellite-store'
+import { useVesselStore } from '@/stores/vessel-store'
+import { useFlightStore } from '@/stores/flight-store'
+import { useWeatherStore } from '@/stores/weather-store'
 import type { NavView } from '@/types'
-import type { SatelliteStats } from '@/hooks/useSatellites'
 
 const NAV_VIEWS: NavView[] = ['Globe', 'Objects', 'Graph', 'Signals', 'Reports']
 
-interface TopBarProps {
-  activeView: NavView
-  onViewChange: (v: NavView) => void
-  sessionStart: number
-  getStats: () => SatelliteStats
-  vesselCount: number
-  vesselConnected: boolean
-  flightCount: number
-  flightConnected: boolean
-}
-
-export function TopBar({ activeView, onViewChange, sessionStart, getStats, vesselCount, vesselConnected, flightCount, flightConnected }: TopBarProps) {
+export function TopBar() {
+  const { activeView, setActiveView, sessionStart } = useAppStore()
   const { time, date } = useClock(sessionStart)
+  const getStats = useSatelliteStore(s => s.getStats)
+  const vesselCount = useVesselStore(s => s.count)
+  const vesselConnected = useVesselStore(s => s.connected)
+  const flightCount = useFlightStore(s => s.count)
+  const flightConnected = useFlightStore(s => s.connected)
+  const weatherCount = useWeatherStore(s => s.count)
+  const weatherLastFetch = useWeatherStore(s => s.lastFetch)
+
   const stats = getStats()
 
   const dataAge = stats.lastFetchTime
@@ -45,7 +47,7 @@ export function TopBar({ activeView, onViewChange, sessionStart, getStats, vesse
         {NAV_VIEWS.map(view => (
           <button
             key={view}
-            onClick={() => onViewChange(view)}
+            onClick={() => setActiveView(view)}
             className={[
               'font-display text-xs font-medium tracking-[2px] uppercase px-4 h-full',
               'border-r border-zinc-800 border-b-2 transition-colors',
@@ -78,6 +80,12 @@ export function TopBar({ activeView, onViewChange, sessionStart, getStats, vesse
         </div>
         <div className="flex items-center gap-2 px-4 h-full border-l border-zinc-800 font-mono text-[12px] text-zinc-600">
           <Pip color={flightConnected ? 'ok' : 'danger'} /> ADS-B
+        </div>
+        <div className="flex items-center gap-2 px-4 h-full border-l border-zinc-800 font-mono text-[12px] text-zinc-600">
+          <span className="text-green-400">{weatherCount}</span> Events
+        </div>
+        <div className="flex items-center gap-2 px-4 h-full border-l border-zinc-800 font-mono text-[12px] text-zinc-600">
+          <Pip color={weatherLastFetch ? 'ok' : 'danger'} /> WX
         </div>
         <div className="flex items-center gap-2 px-4 h-full border-l border-zinc-800 font-mono text-[12px] text-zinc-600">
           {dataAge !== null ? (

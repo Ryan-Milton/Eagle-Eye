@@ -1,0 +1,560 @@
+/**
+ * Unified Eagle Eye backend server.
+ * Consolidates AIS proxy, flight proxy, and HexDB proxy into a single service.
+ *
+ * WebSocket endpoints:
+ *   /ws/ais     — AIS position reports from AISStream.io
+ *   /ws/flights — Aircraft positions from OpenSky / ADS-B Exchange
+ *
+ * HTTP endpoints:
+ *   /api/hexdb/lookup?hex=ICAO24&callsign=CALLSIGN — Aircraft metadata
+ *   /api/hexdb/image?hex=ICAO24                     — Aircraft photo proxy
+ */
+
+const PORT = Number(process.env.EAGLE_EYE_PORT ?? 4000)
+
+// ─── AIS PROXY ──────────────────────────────────────────────────────────────
+
+const AIS_API_KEY = process.env.AIS_API_KEY ?? ''
+const aisClients = new Set<import('bun').ServerWebSocket<{ path: string }>>()
+let aisUpstream: WebSocket | null = null
+
+function connectAisUpstream() {
+  if (!AIS_API_KEY) {
+    console.warn('[AIS] Missing AIS_API_KEY — AIS proxy disabled')
+    return
+  }
+
+  aisUpstream = new WebSocket('wss://stream.aisstream.io/v0/stream')
+
+  aisUpstream.onopen = () => {
+    console.log('[AIS] Connected to AISStream.io')
+    aisUpstream!.send(JSON.stringify({
+      APIKey: AIS_API_KEY,
+      BoundingBoxes: [[[-90, -180], [90, 180]]],
+      FilterMessageTypes: ['PositionReport'],
+    }))
+  }
+
+  let relayCount = 0
+  aisUpstream.onmessage = (event) => {
+    const data = typeof event.data === 'string'
+      ? event.data
+      : Buffer.isBuffer(event.data)
+        ? event.data.toString()
+        : String(event.data)
+
+    for (const client of aisClients) {
+      try { client.send(data) } catch { /* skip */ }
+    }
+
+    relayCount++
+    if (relayCount % 100 === 0) {
+      console.log(`[AIS] Relayed ${relayCount} messages`)
+    }
+  }
+
+  aisUpstream.onclose = () => {
+    console.log('[AIS] Upstream closed, reconnecting in 5s...')
+    setTimeout(connectAisUpstream, 5000)
+  }
+
+  aisUpstream.onerror = (err) => {
+    console.error('[AIS] Upstream error:', err)
+  }
+}
+
+connectAisUpstream()
+
+// ─── FLIGHT PROXY ───────────────────────────────────────────────────────────
+
+const FLIGHT_SOURCE = process.env.FLIGHT_SOURCE ?? 'opensky'
+const BASE_POLL_INTERVAL = 30_000
+const MAX_POLL_INTERVAL = 300_000
+
+const OPENSKY_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token'
+const OPENSKY_CLIENT_ID = process.env.OPENSKY_CLIENT_ID ?? ''
+const OPENSKY_CLIENT_SECRET = process.env.OPENSKY_CLIENT_SECRET ?? ''
+
+const flightClients = new Set<import('bun').ServerWebSocket<{ path: string }>>()
+
+let accessToken: string | null = null
+let tokenExpiresAt = 0
+
+async function getOpenSkyToken(): Promise<string | null> {
+  if (!OPENSKY_CLIENT_ID || !OPENSKY_CLIENT_SECRET) return null
+  if (accessToken && Date.now() < tokenExpiresAt - 60_000) return accessToken
+
+  const res = await fetch(OPENSKY_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: OPENSKY_CLIENT_ID,
+      client_secret: OPENSKY_CLIENT_SECRET,
+    }),
+  })
+
+  if (!res.ok) {
+    console.error(`[Flight] OAuth2 token request failed: ${res.status}`)
+    accessToken = null
+    return null
+  }
+
+  const json = await res.json()
+  accessToken = json.access_token
+  tokenExpiresAt = Date.now() + (json.expires_in ?? 1800) * 1000
+  console.log(`[Flight] OAuth2 token acquired, expires in ${json.expires_in ?? 1800}s`)
+  return accessToken
+}
+
+interface FlightData {
+  icao24: string
+  callsign: string
+  type: string
+  originCountry: string
+  lat: number
+  lon: number
+  altitude: number
+  speed: number
+  heading: number
+  verticalRate: number
+  onGround: boolean
+  lastUpdate: number
+}
+
+import { classifyFlight } from '../src/lib/classify-flight'
+
+async function fetchOpenSky(): Promise<FlightData[] | null> {
+  const token = await getOpenSkyToken()
+  const headers: Record<string, string> = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const res = await fetch('https://opensky-network.org/api/states/all', { headers })
+
+  if (res.status === 401 && token) {
+    console.warn('[Flight] OpenSky 401 — refreshing token')
+    accessToken = null
+    tokenExpiresAt = 0
+    return fetchOpenSky()
+  }
+  if (res.status === 429) {
+    console.warn('[Flight] OpenSky 429 — backing off')
+    return null
+  }
+  if (!res.ok) {
+    console.error(`[Flight] OpenSky HTTP ${res.status}`)
+    return null
+  }
+
+  const json = await res.json() as { time: number; states: unknown[][] | null }
+  if (!json.states) return []
+
+  const flights: FlightData[] = []
+  for (const s of json.states) {
+    const icao24 = s[0] as string
+    const callsign = ((s[1] as string) ?? '').trim()
+    const originCountry = (s[2] as string) ?? ''
+    const lon = s[5] as number | null
+    const lat = s[6] as number | null
+    const altitude = s[7] as number | null
+    const onGround = s[8] as boolean
+    const speed = s[9] as number | null
+    const heading = s[10] as number | null
+    const verticalRate = s[11] as number | null
+
+    if (lat == null || lon == null) continue
+
+    flights.push({
+      icao24,
+      callsign: callsign || icao24.toUpperCase(),
+      type: classifyFlight(callsign),
+      originCountry,
+      lat, lon,
+      altitude: altitude ?? 0,
+      speed: speed ?? 0,
+      heading: heading ?? 0,
+      verticalRate: verticalRate ?? 0,
+      onGround,
+      lastUpdate: Date.now(),
+    })
+  }
+  return flights
+}
+
+async function fetchAdsbExchange(): Promise<FlightData[] | null> {
+  const apiKey = process.env.RAPIDAPI_KEY
+  if (!apiKey) {
+    console.error('[Flight] Missing RAPIDAPI_KEY for ADS-B Exchange')
+    return []
+  }
+
+  const res = await fetch(
+    'https://adsbexchange-com1.p.rapidapi.com/v2/lat/40.0/lon/-74.0/dist/250/',
+    { headers: { 'X-RapidAPI-Key': apiKey, 'X-RapidAPI-Host': 'adsbexchange-com1.p.rapidapi.com' } },
+  )
+  if (res.status === 429) {
+    console.warn('[Flight] ADS-B Exchange 429 — backing off')
+    return null
+  }
+  if (!res.ok) {
+    console.error(`[Flight] ADS-B Exchange HTTP ${res.status}`)
+    return null
+  }
+
+  const json = await res.json() as { ac?: Array<Record<string, unknown>> }
+  if (!json.ac) return []
+
+  const flights: FlightData[] = []
+  for (const ac of json.ac) {
+    const icao24 = (ac.hex as string ?? '').toLowerCase()
+    const callsign = ((ac.flight as string) ?? '').trim()
+    const lat = ac.lat as number | null
+    const lon = ac.lon as number | null
+    if (lat == null || lon == null) continue
+
+    flights.push({
+      icao24,
+      callsign: callsign || icao24.toUpperCase(),
+      type: classifyFlight(callsign),
+      originCountry: '',
+      lat, lon,
+      altitude: ((ac.alt_baro as number) ?? 0) * 0.3048,
+      speed: ((ac.gs as number) ?? 0) * 0.514444,
+      heading: (ac.track as number) ?? 0,
+      verticalRate: ((ac.baro_rate as number) ?? 0) * 0.00508,
+      onGround: (ac.alt_baro as string) === 'ground',
+      lastUpdate: Date.now(),
+    })
+  }
+  return flights
+}
+
+let pollCount = 0
+let currentInterval = BASE_POLL_INTERVAL
+let consecutiveFailures = 0
+let lastGoodPayload: string | null = null
+
+async function poll() {
+  if (flightClients.size === 0) {
+    setTimeout(poll, currentInterval)
+    return
+  }
+
+  try {
+    const flights = FLIGHT_SOURCE === 'adsb'
+      ? await fetchAdsbExchange()
+      : await fetchOpenSky()
+
+    if (flights === null) {
+      consecutiveFailures++
+      currentInterval = Math.min(MAX_POLL_INTERVAL, BASE_POLL_INTERVAL * Math.pow(2, consecutiveFailures))
+      console.warn(`[Flight] Backoff: next poll in ${(currentInterval / 1000).toFixed(0)}s (failure #${consecutiveFailures})`)
+      if (lastGoodPayload && flightClients.size > 0) {
+        for (const client of flightClients) {
+          try { client.send(lastGoodPayload) } catch { /* skip */ }
+        }
+      }
+    } else {
+      consecutiveFailures = 0
+      currentInterval = BASE_POLL_INTERVAL
+      const payload = JSON.stringify({ type: 'flights', flights, timestamp: Date.now() })
+      lastGoodPayload = payload
+      for (const client of flightClients) {
+        try { client.send(payload) } catch { /* skip */ }
+      }
+      pollCount++
+      if (pollCount % 6 === 0) {
+        console.log(`[Flight] Poll #${pollCount}: ${flights.length} aircraft, ${flightClients.size} clients`)
+      }
+    }
+  } catch (err) {
+    console.error('[Flight] Poll error:', err)
+    consecutiveFailures++
+    currentInterval = Math.min(MAX_POLL_INTERVAL, BASE_POLL_INTERVAL * Math.pow(2, consecutiveFailures))
+  }
+
+  setTimeout(poll, currentInterval)
+}
+
+poll()
+
+// ─── WEATHER PROXY ──────────────────────────────────────────────────────────
+
+import { parseUSGSEarthquakes, parseEONETEvents, parseNWSAlerts } from '../src/lib/weather-client'
+
+interface WeatherCacheEntry {
+  events: unknown[]
+  errors: string[]
+  fetchedAt: number
+}
+
+let weatherCache: WeatherCacheEntry | null = null
+const WEATHER_CACHE_TTL = 300_000 // 5 min
+
+const EONET_ENDPOINTS = [
+  'https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=100',
+  'https://eonet.sci.gsfc.nasa.gov/api/v3/events?status=open&limit=100',
+  'https://api.nasa.gov/EONET/events?status=open&limit=100&api_key=DEMO_KEY',
+]
+
+async function fetchEONETWithFallback(
+  withTimeout: (url: string, opts?: RequestInit) => Promise<Response>,
+): Promise<ReturnType<typeof parseEONETEvents>> {
+  const attemptErrors: string[] = []
+
+  for (let i = 0; i < EONET_ENDPOINTS.length; i++) {
+    const url = EONET_ENDPOINTS[i]
+    const label = i === 0 ? 'primary' : `fallback ${i}`
+    try {
+      const r = await withTimeout(url)
+      if (r.ok) {
+        const json = await r.json()
+        const events = parseEONETEvents(json)
+        if (i > 0) console.log(`[Weather] EONET ${label} succeeded with ${events.length} events`)
+        return events
+      }
+      attemptErrors.push(`${label}: HTTP ${r.status}`)
+      console.warn(`[Weather] EONET ${label} returned HTTP ${r.status}`)
+    } catch (err) {
+      attemptErrors.push(`${label}: ${(err as Error).message}`)
+      console.warn(`[Weather] EONET ${label} failed: ${(err as Error).message}`)
+    }
+  }
+
+  throw new Error(`All endpoints failed (${attemptErrors.join('; ')})`)
+}
+
+const SOURCE_NAMES = ['USGS Earthquakes', 'NASA EONET', 'NWS Alerts'] as const
+
+async function fetchWeatherEvents(): Promise<{ events: unknown[]; errors: string[] }> {
+  if (weatherCache && Date.now() - weatherCache.fetchedAt < WEATHER_CACHE_TTL) {
+    return { events: weatherCache.events, errors: weatherCache.errors }
+  }
+
+  const FETCH_TIMEOUT = 15_000 // 15s per upstream API
+  const withTimeout = (url: string, opts?: RequestInit) =>
+    fetch(url, { ...opts, signal: AbortSignal.timeout(FETCH_TIMEOUT) })
+
+  const results = await Promise.allSettled([
+    withTimeout('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson')
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
+      .then(json => parseUSGSEarthquakes(json)),
+    fetchEONETWithFallback(withTimeout),
+    withTimeout('https://api.weather.gov/alerts/active', {
+      headers: { 'User-Agent': 'EagleEye/1.0 (weather-dashboard)' },
+    })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
+      .then(json => parseNWSAlerts(json)),
+  ])
+
+  const events: unknown[] = []
+  const errors: string[] = []
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]
+    if (result.status === 'fulfilled' && Array.isArray(result.value)) {
+      events.push(...result.value)
+    } else if (result.status === 'rejected') {
+      const msg = `${SOURCE_NAMES[i]}: ${result.reason?.message ?? 'Unknown error'}`
+      errors.push(msg)
+      console.warn(`[Weather] ${msg}`)
+    }
+  }
+
+  weatherCache = { events, errors, fetchedAt: Date.now() }
+  console.log(`[Weather] Fetched ${events.length} events, ${errors.length} source errors`)
+  return { events, errors }
+}
+
+async function handleWeatherEvents(): Promise<Response> {
+  try {
+    const { events, errors } = await fetchWeatherEvents()
+    return Response.json({ events, errors }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  } catch (err) {
+    console.error('[Weather] Fetch error:', err)
+    return Response.json({ events: [], errors: ['All sources failed'] }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+}
+
+async function handleWeatherConditions(url: URL): Promise<Response> {
+  const lat = url.searchParams.get('lat')
+  const lon = url.searchParams.get('lon')
+  if (!lat || !lon) return Response.json({ error: 'lat and lon required' }, { status: 400 })
+
+  try {
+    const res = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation,surface_pressure,weather_code`
+    )
+    if (!res.ok) return Response.json({ error: 'upstream error' }, { status: 502 })
+    const data = await res.json()
+    return Response.json(data, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  } catch {
+    return Response.json({ error: 'fetch error' }, { status: 502 })
+  }
+}
+
+// ─── HEXDB PROXY ────────────────────────────────────────────────────────────
+
+const HEXDB = 'https://hexdb.io'
+
+async function fetchJson(url: string): Promise<unknown | null> {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    return await res.json()
+  } catch { return null }
+}
+
+async function resolveImageUrl(hex: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${HEXDB}/hex-image-thumb?hex=${hex}`)
+    if (!res.ok) return null
+    const text = (await res.text()).trim()
+    return text.startsWith('http') ? text : null
+  } catch { return null }
+}
+
+async function handleHexdbLookup(url: URL): Promise<Response> {
+  const hex = (url.searchParams.get('hex') ?? '').toUpperCase()
+  if (!hex) return Response.json({ error: 'hex required' }, { status: 400 })
+  const callsign = (url.searchParams.get('callsign') ?? '').trim()
+
+  const [aircraft, route] = await Promise.all([
+    fetchJson(`${HEXDB}/api/v1/aircraft/${hex}`),
+    callsign ? fetchJson(`${HEXDB}/api/v1/route/icao/${callsign}`) : null,
+  ])
+
+  let origin = null
+  let destination = null
+  const routeStr = (route as { route?: string })?.route
+  if (routeStr) {
+    const parts = routeStr.split('-')
+    if (parts.length === 2) {
+      ;[origin, destination] = await Promise.all([
+        fetchJson(`${HEXDB}/api/v1/airport/icao/${parts[0]}`),
+        fetchJson(`${HEXDB}/api/v1/airport/icao/${parts[1]}`),
+      ])
+    }
+  }
+
+  const imageUrl = await resolveImageUrl(hex)
+  return Response.json(
+    { aircraft, route, origin, destination, hasImage: imageUrl !== null },
+    { headers: { 'Access-Control-Allow-Origin': '*' } },
+  )
+}
+
+async function handleHexdbImage(url: URL): Promise<Response> {
+  const hex = (url.searchParams.get('hex') ?? '').toUpperCase()
+  if (!hex) return new Response('hex required', { status: 400 })
+
+  const realUrl = await resolveImageUrl(hex)
+  if (!realUrl) return new Response('not found', { status: 404 })
+
+  try {
+    const imgRes = await fetch(realUrl)
+    if (!imgRes.ok) return new Response('not found', { status: 404 })
+    return new Response(imgRes.body, {
+      headers: {
+        'Content-Type': imgRes.headers.get('Content-Type') ?? 'image/jpeg',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'public, max-age=86400',
+      },
+    })
+  } catch {
+    return new Response('fetch error', { status: 502 })
+  }
+}
+
+// ─── UNIFIED SERVER ─────────────────────────────────────────────────────────
+
+Bun.serve<{ path: string }>({
+  port: PORT,
+  idleTimeout: 60, // seconds — weather fetches can be slow
+  async fetch(req, server) {
+    const url = new URL(req.url)
+
+    // WebSocket upgrade — differentiate by path
+    if (url.pathname === '/ws/ais') {
+      if (server.upgrade(req, { data: { path: '/ws/ais' } })) return
+      return new Response('WebSocket upgrade failed', { status: 400 })
+    }
+    if (url.pathname === '/ws/flights') {
+      if (server.upgrade(req, { data: { path: '/ws/flights' } })) return
+      return new Response('WebSocket upgrade failed', { status: 400 })
+    }
+
+    // HTTP API routes
+    if (url.pathname === '/api/weather/events') return handleWeatherEvents()
+    if (url.pathname === '/api/weather/conditions') return handleWeatherConditions(url)
+    if (url.pathname === '/api/hexdb/lookup') return handleHexdbLookup(url)
+    if (url.pathname === '/api/hexdb/image') return handleHexdbImage(url)
+
+    // Legacy compatibility routes (single-port clients)
+    if (url.pathname === '/lookup') return handleHexdbLookup(url)
+    if (url.pathname === '/image') return handleHexdbImage(url)
+
+    // Health check
+    if (url.pathname === '/health') {
+      return Response.json({
+        status: 'ok',
+        ais: { connected: aisUpstream?.readyState === WebSocket.OPEN, clients: aisClients.size },
+        flights: { source: FLIGHT_SOURCE, clients: flightClients.size, polls: pollCount },
+      })
+    }
+
+    return new Response('Eagle Eye Backend', { status: 200 })
+  },
+  websocket: {
+    open(ws) {
+      if (ws.data.path === '/ws/ais') {
+        aisClients.add(ws)
+        console.log(`[AIS] Client connected (${aisClients.size} total)`)
+      } else if (ws.data.path === '/ws/flights') {
+        flightClients.add(ws)
+        console.log(`[Flight] Client connected (${flightClients.size} total)`)
+        // Send last known data to new clients
+        if (lastGoodPayload) {
+          try { ws.send(lastGoodPayload) } catch { /* skip */ }
+        }
+      }
+    },
+    close(ws) {
+      if (ws.data.path === '/ws/ais') {
+        aisClients.delete(ws)
+        console.log(`[AIS] Client disconnected (${aisClients.size} total)`)
+      } else if (ws.data.path === '/ws/flights') {
+        flightClients.delete(ws)
+        console.log(`[Flight] Client disconnected (${flightClients.size} total)`)
+      }
+    },
+    message() {
+      // Browser clients don't send messages
+    },
+  },
+})
+
+console.log(`[Eagle Eye] Backend listening on :${PORT}`)
+console.log(`  WebSocket: /ws/ais, /ws/flights`)
+console.log(`  HTTP API:  /api/weather/events, /api/weather/conditions, /api/hexdb/lookup, /api/hexdb/image`)
+console.log(`  Health:    /health`)
+if (AIS_API_KEY) console.log('[AIS] API key configured')
+else console.warn('[AIS] Missing AIS_API_KEY — AIS proxy disabled')
+if (OPENSKY_CLIENT_ID && OPENSKY_CLIENT_SECRET) console.log('[Flight] OpenSky OAuth2 credentials configured')
+else console.warn('[Flight] OpenSky OAuth2 credentials missing — using anonymous access')
+console.log(`[Flight] Source: ${FLIGHT_SOURCE}`)
+
+// Pre-fetch weather data on startup so the first client request is fast
+fetchWeatherEvents().catch(() => console.warn('[Weather] Initial fetch failed — will retry on first request'))

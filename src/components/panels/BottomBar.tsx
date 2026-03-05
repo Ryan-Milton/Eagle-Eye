@@ -1,8 +1,8 @@
 import { useClock } from '@/hooks/useClock'
+import { useAppStore } from '@/stores/app-store'
 
-interface BottomBarProps { sessionStart: number }
-
-export function BottomBar({ sessionStart }: BottomBarProps) {
+export function BottomBar() {
+  const sessionStart = useAppStore(s => s.sessionStart)
   const { elapsed, nextUpdate } = useClock(sessionStart)
 
   return (
@@ -20,7 +20,7 @@ export function BottomBar({ sessionStart }: BottomBarProps) {
 
       {/* Timeline */}
       <div className="flex-1 flex items-center gap-2.5 px-4 h-full">
-        <span className="font-mono text-[13px] text-zinc-600 whitespace-nowrap">T−6H</span>
+        <span className="font-mono text-[13px] text-zinc-600 whitespace-nowrap">T-6H</span>
         <div className="flex-1 h-[3px] bg-zinc-800 rounded-sm relative cursor-pointer">
           <div className="h-full bg-gradient-to-r from-orange-800 to-orange-500 rounded-sm w-[68%] relative">
             <div className="absolute right-[-1px] top-[-3px] w-[2px] h-[9px] bg-orange-400 rounded-sm shadow-[0_0_6px_rgba(249,115,22,0.6)]" />
