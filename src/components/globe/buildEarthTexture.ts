@@ -1,17 +1,9 @@
 import * as THREE from 'three'
-import landData from '@/data/ne_110m_land.json'
+import countriesData from 'world-atlas/countries-50m.json'
+import { feature } from 'topojson-client'
 
-interface GeoJSONPolygon {
-  type: 'Polygon'
-  coordinates: number[][][]
-}
-
-interface GeoJSONFeature {
-  geometry: GeoJSONPolygon
-}
-
-const TX = 2048
-const TY = 1024
+const TX = 4096
+const TY = 2048
 
 function project(lon: number, lat: number): [number, number] {
   return [
@@ -46,31 +38,23 @@ export function buildEarthTexture(): THREE.CanvasTexture {
   ctx.fillStyle = '#080810'
   ctx.fillRect(0, 0, TX, TY)
 
-  // Land masses from GeoJSON
-  ctx.fillStyle = '#1c1c20'
-  ctx.strokeStyle = '#2a2a30'
-  ctx.lineWidth = 1.2
+  // Countries from TopoJSON
+  const countries = feature(countriesData, countriesData.objects.countries as any)
 
-  for (const feature of landData.features as GeoJSONFeature[]) {
-    const coords = feature.geometry.coordinates
+  ctx.fillStyle = '#1a1a22'
+
+  for (const country of (countries as any).features) {
     ctx.beginPath()
-    for (const ring of coords) {
-      drawRing(ctx, ring)
+    const geom = country.geometry
+    const polys = geom.type === 'MultiPolygon'
+      ? geom.coordinates
+      : [geom.coordinates]
+    for (const polygon of polys) {
+      for (const ring of polygon) {
+        drawRing(ctx, ring)
+      }
     }
     ctx.fill()
-    ctx.stroke()
-  }
-
-  // Lat/lon grid
-  ctx.strokeStyle = 'rgba(63,63,70,0.35)'
-  ctx.lineWidth = 0.7
-  for (let lat = -90; lat <= 90; lat += 15) {
-    const y = (90 - lat) / 180 * TY
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(TX, y); ctx.stroke()
-  }
-  for (let lon = -180; lon <= 180; lon += 15) {
-    const x = (lon + 180) / 360 * TX
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, TY); ctx.stroke()
   }
 
   return new THREE.CanvasTexture(canvas)

@@ -9,7 +9,7 @@ interface BadgeProps {
 export function Badge({ children, variant = 'default', className }: BadgeProps) {
   return (
     <span className={cn(
-      'inline-flex items-center font-mono text-[10px] px-1.5 py-0.5 rounded-sm border',
+      'inline-flex items-center font-mono text-[12px] px-1.5 py-0.5 rounded-sm border',
       variant === 'default' && 'bg-zinc-800 text-zinc-400 border-zinc-700',
       variant === 'ok'      && 'bg-green-950/60 text-green-400 border-green-800/40',
       variant === 'warn'    && 'bg-yellow-950/60 text-yellow-400 border-yellow-800/40',
