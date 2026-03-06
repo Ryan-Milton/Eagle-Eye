@@ -543,7 +543,7 @@ async function fetchConflictEvents(): Promise<{ events: unknown[]; errors: strin
   const acledToken = await getACLEDToken()
   if (acledToken) {
     fetchers.push(
-      fetch('https://api.acleddata.com/acled/read?limit=500', {
+      fetch('https://acleddata.com/api/acled/read?limit=500', {
         signal: AbortSignal.timeout(15_000),
         headers: { 'Authorization': `Bearer ${acledToken}` },
       })
