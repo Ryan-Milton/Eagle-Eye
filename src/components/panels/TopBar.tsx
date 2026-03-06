@@ -210,7 +210,7 @@ export function TopBar() {
           <Pip color={camLastFetch ? 'ok' : 'danger'} />
         </div>
         {unackAlerts > 0 && (
-          <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px]">
+          <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px] animate-pulse">
             <span className="text-red-400 font-bold">{unackAlerts}</span>
             <span className="text-red-400/70">ALT</span>
           </div>

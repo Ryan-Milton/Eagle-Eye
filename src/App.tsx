@@ -13,6 +13,7 @@ import { useEconomicInit } from '@/hooks/useEconomicInit'
 import { useCameraInit } from '@/hooks/useCameraInit'
 import { useAlertEngine } from '@/hooks/useAlertEngine'
 import { usePersistence } from '@/hooks/usePersistence'
+import { AlertToastContainer } from '@/components/ui/AlertToast'
 import { TopBar } from '@/components/panels/TopBar'
 import { BottomBar } from '@/components/panels/BottomBar'
 import { LeftPanel } from '@/components/panels/left/LeftPanel'
@@ -51,6 +52,7 @@ export default function App() {
       {activeView === 'Signals' && <SignalsView />}
       {activeView === 'Reports' && <ReportsView />}
       <RightPanel />
+      <AlertToastContainer />
       <BottomBar />
     </div>
   )
