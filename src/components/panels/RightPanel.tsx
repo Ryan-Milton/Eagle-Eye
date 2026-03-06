@@ -11,7 +11,8 @@ import { useConflictStore } from '@/stores/conflict-store'
 import { useCyberStore } from '@/stores/cyber-store'
 import { useRFStore } from '@/stores/rf-store'
 import { useAlertStore } from '@/stores/alert-store'
-import { AlertRuleList } from '@/components/ui/AlertRuleEditor'
+import { AlertRuleEditor, AlertRuleList } from '@/components/ui/AlertRuleEditor'
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/Tooltip'
 import { useOsintStore } from '@/stores/osint-store'
 import { OsintModal } from '@/components/ui/OsintModal'
 import type { OsintPost } from '@/lib/osint-client'
@@ -162,13 +163,19 @@ export function RightPanel() {
           {hasSelection ? panelTitle : selectionPending ? 'Loading Entity...' : 'Intelligence Feed'}
         </span>
         {selectedEntityId && (
-          <button
-            onClick={() => toggleWatch(selectedEntityId)}
-            className={cn('text-sm transition-colors', isWatched ? 'text-orange-400' : 'text-zinc-600 hover:text-zinc-400')}
-            title={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}
-          >
-            {isWatched ? '★' : '☆'}
-          </button>
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => toggleWatch(selectedEntityId)}
+                  className={cn('text-sm transition-colors', isWatched ? 'text-orange-400' : 'text-zinc-600 hover:text-zinc-400')}
+                >
+                  {isWatched ? '★' : '☆'}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left">{isWatched ? 'Remove from watchlist' : 'Add to watchlist'}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         )}
       </div>
 
@@ -210,6 +217,7 @@ function IntelligenceFeed() {
   const { posts, platformToggles, version, count } = useOsintStore()
   const { selectEvent, selectConflict, selectCyber, selectVessel, selectFlight } = useSelectionStore()
   const [osintModalPost, setOsintModalPost] = useState<OsintPost | null>(null)
+  const [showRuleEditor, setShowRuleEditor] = useState(false)
 
   const severityColor = (sev: string) => {
     if (sev === 'critical') return 'text-red-400 border-l-red-500'
@@ -238,10 +246,30 @@ function IntelligenceFeed() {
               </span>
             )}
           </div>
-          {alerts.length > 0 && (
-            <button onClick={acknowledgeAll} className="font-mono text-[10px] text-zinc-600 hover:text-zinc-400 uppercase tracking-wider">Ack All</button>
-          )}
+          <div className="flex items-center gap-2">
+            {alerts.length > 0 && (
+              <button onClick={acknowledgeAll} className="font-mono text-[10px] text-zinc-600 hover:text-zinc-400 uppercase tracking-wider">Ack All</button>
+            )}
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setShowRuleEditor(prev => !prev)}
+                    className="text-zinc-600 hover:text-orange-400 text-sm font-mono leading-none transition-colors"
+                  >
+                    +
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Add Alert Rule</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
         </div>
+        {showRuleEditor && (
+          <div className="px-3 py-2 border-b border-zinc-800">
+            <AlertRuleEditor onClose={() => setShowRuleEditor(false)} />
+          </div>
+        )}
         {alerts.length === 0 ? (
           <div className="py-6 text-center">
             <p className="text-[11px] text-zinc-600 font-mono">No alerts</p>

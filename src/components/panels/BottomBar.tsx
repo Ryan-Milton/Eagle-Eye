@@ -2,6 +2,7 @@ import { useCallback, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { useClock } from '@/hooks/useClock'
 import { useAppStore } from '@/stores/app-store'
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/Tooltip'
 
 const SIX_HOURS = 6 * 60 * 60 * 1000
 const SPEED_OPTIONS = [1, 2, 5, 10]
@@ -111,23 +112,33 @@ export function BottomBar() {
 
       {/* Play/Pause + Speed */}
       <div className="flex items-center h-full border-r border-zinc-800">
-        <button
-          onClick={togglePlayPause}
-          className="px-2.5 h-full font-mono text-[12px] text-zinc-500 hover:text-zinc-300 transition-colors"
-          title={timelinePlaying ? 'Pause' : 'Play'}
-        >
-          {timelinePlaying && !timelineLive ? '⏸' : '▶'}
-        </button>
-        <button
-          onClick={cycleSpeed}
-          className={cn(
-            'px-2 h-full font-mono text-[11px] transition-colors',
-            timelineSpeed > 1 ? 'text-orange-400' : 'text-zinc-600 hover:text-zinc-400',
-          )}
-          title="Playback speed"
-        >
-          {timelineSpeed}x
-        </button>
+        <TooltipProvider delayDuration={200}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={togglePlayPause}
+                className="px-2.5 h-full font-mono text-[12px] text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                {timelinePlaying && !timelineLive ? '⏸' : '▶'}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">{timelinePlaying ? 'Pause' : 'Play'}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={cycleSpeed}
+                className={cn(
+                  'px-2 h-full font-mono text-[11px] transition-colors',
+                  timelineSpeed > 1 ? 'text-orange-400' : 'text-zinc-600 hover:text-zinc-400',
+                )}
+              >
+                {timelineSpeed}x
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">Playback speed</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
 
       <div className="flex items-center gap-1.5 px-3.5 border-r border-zinc-800 font-mono text-[12px] text-zinc-600 whitespace-nowrap h-full">

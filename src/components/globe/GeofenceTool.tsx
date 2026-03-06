@@ -96,10 +96,12 @@ export function GeofenceTool({ map }: GeofenceToolProps) {
 
     return () => {
       map.off('style.load', addLayers)
-      if (map.getLayer(LABEL_LAYER_ID)) map.removeLayer(LABEL_LAYER_ID)
-      if (map.getLayer(OUTLINE_LAYER_ID)) map.removeLayer(OUTLINE_LAYER_ID)
-      if (map.getLayer(FILL_LAYER_ID)) map.removeLayer(FILL_LAYER_ID)
-      if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID)
+      try {
+        if (map.getLayer(LABEL_LAYER_ID)) map.removeLayer(LABEL_LAYER_ID)
+        if (map.getLayer(OUTLINE_LAYER_ID)) map.removeLayer(OUTLINE_LAYER_ID)
+        if (map.getLayer(FILL_LAYER_ID)) map.removeLayer(FILL_LAYER_ID)
+        if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID)
+      } catch { /* map already destroyed */ }
     }
   }, [map])
 

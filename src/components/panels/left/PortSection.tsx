@@ -33,9 +33,12 @@ export function PortSection({ expanded, onToggle }: { expanded: boolean; onToggl
 
   return (
     <div>
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onToggle}
-        className="w-full flex items-center gap-2 px-3.5 py-2.5 border-b border-zinc-800 hover:bg-zinc-800/30 transition-colors"
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
+        className="w-full flex items-center gap-2 px-3.5 py-2.5 border-b border-zinc-800 hover:bg-zinc-800/30 transition-colors cursor-pointer"
       >
         <span className="text-[11px] text-zinc-600">{expanded ? '▾' : '▸'}</span>
         <span className="font-display text-[12px] font-semibold tracking-[2px] text-blue-400 uppercase flex-1 text-left">Ports</span>
@@ -49,7 +52,7 @@ export function PortSection({ expanded, onToggle }: { expanded: boolean; onToggl
         >
           {visible ? '✓' : ''}
         </button>
-      </button>
+      </div>
 
       {expanded && (
         <div className="border-b border-zinc-800">

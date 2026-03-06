@@ -24,7 +24,7 @@ export function CoordinateHUD({ map }: CoordinateHUDProps) {
 
     return () => {
       map.off('mousemove', onMouseMove)
-      map.getCanvas().removeEventListener('mouseleave', onMouseLeave)
+      try { map.getCanvas().removeEventListener('mouseleave', onMouseLeave) } catch { /* map already destroyed */ }
       map.off('zoom', onZoom)
     }
   }, [map])

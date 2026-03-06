@@ -8,7 +8,7 @@ export function useCameraInit() {
 
     async function load() {
       try {
-        const res = await fetch('/api/cameras/nearby?lat=40&lon=-74&radius=5000')
+        const res = await fetch('/api/cameras/nearby')
         if (!res.ok) return
         const json = await res.json() as { cameras: Camera[]; errors: string[] }
         if (cancelled) return

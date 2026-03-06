@@ -11,24 +11,31 @@ interface AbuseIPDBEntry {
 // Simple IP geolocation lookup table not feasible here.
 // The server proxy adds lat/lon from a GeoIP database.
 export function parseAbuseIPDB(data: {
-  data?: Array<AbuseIPDBEntry & { lat?: number; lon?: number }>
+  data?: Array<Partial<AbuseIPDBEntry> & { lat?: number; lon?: number; city?: string; geoCountry?: string }>
 }): CyberEvent[] {
   if (!data.data) return []
   return data.data
-    .filter(e => e.lat != null && e.lon != null)
-    .map((e, i) => ({
-      id: `abuse-${e.ipAddress}-${i}`,
-      type: (e.abuseConfidenceScore > 95 ? 'ddos' : 'scan') as CyberEventType,
-      title: `Abuse report: ${e.ipAddress} (${e.countryCode})`,
-      description: `${e.totalReports} reports, confidence ${e.abuseConfidenceScore}%`,
-      ip: e.ipAddress,
-      lat: e.lat!,
-      lon: e.lon!,
-      severity: Math.min(10, Math.round(e.abuseConfidenceScore / 10)),
-      source: 'abuseipdb' as const,
-      time: new Date(e.lastReportedAt).getTime(),
-      lastUpdate: Date.now(),
-    }))
+    .filter(e => e.lat != null && e.lon != null && e.ipAddress)
+    .map((e, i) => {
+      const confidence = e.abuseConfidenceScore ?? 0
+      const reports = e.totalReports ?? 0
+      const location = [e.city, e.geoCountry ?? e.countryCode].filter(Boolean).join(', ')
+      return {
+        id: `abuse-${e.ipAddress}-${i}`,
+        type: (confidence > 95 ? 'ddos' : 'scan') as CyberEventType,
+        title: `Abuse report: ${e.ipAddress} (${location})`,
+        description: reports > 0
+          ? `${reports} reports, confidence ${confidence}%`
+          : `Confidence ${confidence}%`,
+        ip: e.ipAddress!,
+        lat: e.lat!,
+        lon: e.lon!,
+        severity: Math.min(10, Math.round(confidence / 10)),
+        source: 'abuseipdb' as const,
+        time: e.lastReportedAt ? new Date(e.lastReportedAt).getTime() : Date.now(),
+        lastUpdate: Date.now(),
+      }
+    })
 }
 
 interface IODASignal {

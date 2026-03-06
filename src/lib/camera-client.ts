@@ -20,9 +20,10 @@ export interface Camera {
 export function parseWindyCameras(json: unknown): Camera[] {
   const data = json as {
     webcams?: Array<{
-      id?: string; title?: string
+      id?: string; webcamId?: number | string; title?: string
       location?: { latitude?: number; longitude?: number; city?: string; country?: string }
       image?: { current?: { preview?: string } }
+      images?: { current?: { preview?: string } }
       player?: { day?: { embed?: string } }
       lastUpdatedOn?: string
     }>
@@ -33,11 +34,11 @@ export function parseWindyCameras(json: unknown): Camera[] {
   return data.webcams
     .filter(c => c.location?.latitude != null && c.location?.longitude != null)
     .map(c => ({
-      id: `cam-${c.id}`,
+      id: `cam-${c.webcamId ?? c.id}`,
       title: c.title ?? 'Unknown Camera',
       lat: c.location!.latitude!,
       lon: c.location!.longitude!,
-      thumbnail: c.image?.current?.preview ?? '',
+      thumbnail: c.images?.current?.preview ?? c.image?.current?.preview ?? '',
       playerUrl: c.player?.day?.embed ?? null,
       city: c.location!.city ?? '',
       country: c.location!.country ?? '',

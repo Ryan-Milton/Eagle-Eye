@@ -2,6 +2,8 @@ import { useState, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { useOsintStore } from '@/stores/osint-store'
 import { OSINT_PLATFORM_COLORS } from '@/lib/colors'
+import { OsintModal } from '@/components/ui/OsintModal'
+import type { OsintPost } from '@/lib/osint-client'
 
 const PLATFORM_ICONS: Record<string, string> = {
   reddit: 'R/',
@@ -11,6 +13,7 @@ const PLATFORM_ICONS: Record<string, string> = {
 
 export function OsintSection() {
   const [open, setOpen] = useState(true)
+  const [modalPost, setModalPost] = useState<OsintPost | null>(null)
   const { posts, platformToggles, togglePlatform, version, count } = useOsintStore()
 
   const sortedPosts = useMemo(() => {
@@ -59,12 +62,10 @@ export function OsintSection() {
           {/* Posts list */}
           <div className="space-y-1 max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
             {sortedPosts.map(post => (
-              <a
+              <button
                 key={post.id}
-                href={post.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block px-2 py-1.5 rounded hover:bg-zinc-800/60 transition-colors"
+                onClick={() => setModalPost(post)}
+                className="block w-full text-left px-2 py-1.5 rounded hover:bg-zinc-800/60 transition-colors cursor-pointer"
               >
                 <div className="flex items-center gap-1.5 mb-0.5">
                   <span className={cn(
@@ -77,7 +78,7 @@ export function OsintSection() {
                   <span className="font-mono text-[9px] text-zinc-700 ml-auto">{post.locationName}</span>
                 </div>
                 <div className="font-mono text-[11px] text-zinc-400 truncate">{post.text}</div>
-              </a>
+              </button>
             ))}
             {sortedPosts.length === 0 && (
               <div className="text-center py-3 font-mono text-[11px] text-zinc-600">
@@ -87,6 +88,7 @@ export function OsintSection() {
           </div>
         </div>
       )}
+      <OsintModal post={modalPost} onClose={() => setModalPost(null)} />
     </div>
   )
 }

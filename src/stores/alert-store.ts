@@ -55,10 +55,7 @@ export const useAlertStore = create<AlertState>()((set, get) => ({
   },
 
   acknowledgeAll: () => {
-    set(s => ({
-      alerts: s.alerts.map(a => ({ ...a, acknowledged: true })),
-      unacknowledgedCount: 0,
-    }))
+    set({ alerts: [], unacknowledgedCount: 0 })
   },
 
   clear: () => set({ alerts: [], unacknowledgedCount: 0 }),

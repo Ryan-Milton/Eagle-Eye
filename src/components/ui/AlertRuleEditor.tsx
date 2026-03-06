@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { useAlertRuleStore, type AlertRule, type RuleTrigger } from '@/stores/alert-rule-store'
 import { useGeofenceStore } from '@/stores/geofence-store'
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/Tooltip'
 
 const TRIGGER_LABELS: Record<RuleTrigger, string> = {
   domain: 'Domain Filter',
@@ -304,25 +305,11 @@ export function AlertRuleEditor({ onClose }: { onClose: () => void }) {
 /** Compact list of existing rules with toggle/delete controls */
 export function AlertRuleList() {
   const { rules, toggleRule, removeRule } = useAlertRuleStore()
-  const [showEditor, setShowEditor] = useState(false)
 
-  if (rules.length === 0 && !showEditor) {
-    return (
-      <div className="px-3 py-2">
-        <button
-          onClick={() => setShowEditor(true)}
-          className="w-full py-1.5 text-[10px] font-mono uppercase tracking-wider rounded bg-zinc-800 text-zinc-500 border border-zinc-700 hover:text-zinc-300 hover:border-zinc-600 transition-colors"
-        >
-          + Add Alert Rule
-        </button>
-      </div>
-    )
-  }
+  if (rules.length === 0) return null
 
   return (
-    <div className="px-3 py-2 space-y-2">
-      {showEditor && <AlertRuleEditor onClose={() => setShowEditor(false)} />}
-
+    <div className="px-3 py-2 space-y-1">
       {rules.map(rule => (
         <div
           key={rule.id}
@@ -333,14 +320,20 @@ export function AlertRuleList() {
               : 'bg-zinc-900/50 border-zinc-800 opacity-50',
           )}
         >
-          <button
-            onClick={() => toggleRule(rule.id)}
-            className={cn(
-              'w-2 h-2 rounded-full flex-shrink-0 transition-colors',
-              rule.enabled ? 'bg-green-400' : 'bg-zinc-600',
-            )}
-            title={rule.enabled ? 'Disable' : 'Enable'}
-          />
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => toggleRule(rule.id)}
+                  className={cn(
+                    'w-2 h-2 rounded-full flex-shrink-0 transition-colors',
+                    rule.enabled ? 'bg-green-400' : 'bg-zinc-600',
+                  )}
+                />
+              </TooltipTrigger>
+              <TooltipContent side="right">{rule.enabled ? 'Disable' : 'Enable'}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <div className="flex-1 min-w-0">
             <div className="text-[11px] font-mono text-zinc-300 truncate">{rule.name}</div>
             <div className="text-[9px] font-mono text-zinc-600 uppercase">{rule.trigger} — {rule.alertSeverity}</div>
@@ -353,15 +346,6 @@ export function AlertRuleList() {
           </button>
         </div>
       ))}
-
-      {!showEditor && (
-        <button
-          onClick={() => setShowEditor(true)}
-          className="w-full py-1 text-[10px] font-mono uppercase tracking-wider text-zinc-600 hover:text-zinc-400 transition-colors"
-        >
-          + Add Rule
-        </button>
-      )}
     </div>
   )
 }

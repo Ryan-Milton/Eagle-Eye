@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { useState, useMemo, useCallback, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { useSatelliteStore } from '@/stores/satellite-store'
 import { useVesselStore } from '@/stores/vessel-store'
@@ -14,6 +14,8 @@ import { useEconomicStore } from '@/stores/economic-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { useAppStore } from '@/stores/app-store'
 import { exportCSV, exportGeoJSON } from '@/lib/export'
+import { PieChart, Pie, Cell, BarChart, Bar, AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts'
+import { DOMAIN_HEX_COLORS, CHART_TOOLTIP_STYLE, activeBarGrow } from '@/lib/chart-theme'
 
 interface UnifiedEntity {
   id: string
@@ -272,6 +274,47 @@ export function ObjectsView() {
     return list
   }, [allEntities, search, domainFilter, sortField, sortDir])
 
+  // Summary strip data
+  const domainDistribution = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const e of allEntities) {
+      counts[e.domain] = (counts[e.domain] || 0) + 1
+    }
+    return Object.entries(counts)
+      .filter(([, count]) => count > 0)
+      .map(([domain, count]) => ({ domain, count, fill: DOMAIN_HEX_COLORS[domain] || '#71717a' }))
+  }, [allEntities])
+
+  const speedBuckets = useMemo(() => {
+    const buckets = [
+      { label: 'Idle', min: 0, max: 5, count: 0 },
+      { label: 'Slow', min: 5, max: 20, count: 0 },
+      { label: 'Med', min: 20, max: 100, count: 0 },
+      { label: 'Fast', min: 100, max: Infinity, count: 0 },
+    ]
+    for (const e of filteredEntities) {
+      if (e.speed === null) continue
+      const spd = e.speed
+      if (spd < 5) buckets[0].count++
+      else if (spd < 20) buckets[1].count++
+      else if (spd < 100) buckets[2].count++
+      else buckets[3].count++
+    }
+    return buckets
+  }, [filteredEntities])
+
+  const updateTimeline = useMemo(() => {
+    const now = Date.now()
+    const bins: { label: string; count: number }[] = []
+    for (let i = 5; i >= 0; i--) {
+      const binStart = now - (i + 1) * 10000
+      const binEnd = now - i * 10000
+      const count = filteredEntities.filter(e => e.lastUpdate >= binStart && e.lastUpdate < binEnd).length
+      bins.push({ label: `${(i + 1) * 10}s`, count })
+    }
+    return bins
+  }, [filteredEntities])
+
   const handleSort = useCallback((field: SortField) => {
     if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortField(field); setSortDir('desc') }
@@ -305,7 +348,7 @@ export function ObjectsView() {
 
   // Virtual scrolling
   const containerHeight = typeof window !== 'undefined' ? window.innerHeight - 46 - 34 : 600
-  const headerHeight = 88
+  const headerHeight = 168
   const tableHeight = containerHeight - headerHeight
   const totalHeight = filteredEntities.length * ROW_HEIGHT
   const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN)
@@ -362,6 +405,103 @@ export function ObjectsView() {
           <span className="font-mono text-[11px] text-zinc-500">
             {filteredEntities.length.toLocaleString()} entities
           </span>
+        </div>
+      </div>
+
+      {/* Summary Strip */}
+      <div className="grid grid-cols-4 gap-3 px-4 py-2 border-b border-zinc-800 flex-shrink-0">
+        {/* Domain Distribution */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded p-2">
+          <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Domain Distribution</span>
+          <div style={{ height: 60, minWidth: 0 }}>
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <PieChart>
+                <Pie
+                  data={domainDistribution}
+                  dataKey="count"
+                  nameKey="domain"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={25}
+                  innerRadius={10}
+                  strokeWidth={0}
+                  onClick={(entry: { domain: string }) => toggleDomainFilter(entry.domain)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  {domainDistribution.map((entry) => (
+                    <Cell key={entry.domain} fill={entry.fill} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  {...CHART_TOOLTIP_STYLE}
+                  formatter={(value: number | undefined, name: string | undefined) => [value ?? 0, name ?? '']}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Speed Distribution */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded p-2">
+          <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Speed Distribution</span>
+          <div style={{ height: 60, minWidth: 0 }}>
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <BarChart data={speedBuckets} margin={{ top: 4, right: 2, bottom: 0, left: 2 }}>
+                <Tooltip
+                  {...CHART_TOOLTIP_STYLE}
+                  formatter={(value: number | undefined) => [value ?? 0, 'Count']}
+                  labelFormatter={(label) => String(label)}
+                />
+                <Bar dataKey="count" fill="#f97316" radius={[2, 2, 0, 0]} activeBar={activeBarGrow}>
+                  {speedBuckets.map((_, i) => (
+                    <Cell key={i} fill="#f97316" />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Recent Updates */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded p-2">
+          <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Recent Updates</span>
+          <div style={{ height: 60, minWidth: 0 }}>
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <AreaChart data={updateTimeline} margin={{ top: 4, right: 2, bottom: 0, left: 2 }}>
+                <Tooltip
+                  {...CHART_TOOLTIP_STYLE}
+                  formatter={(value: number | undefined) => [value ?? 0, 'Updates']}
+                />
+                <defs>
+                  <linearGradient id="updateFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f97316" stopOpacity={0.3} />
+                    <stop offset="100%" stopColor="#f97316" stopOpacity={0.05} />
+                  </linearGradient>
+                </defs>
+                <Area
+                  type="monotone"
+                  dataKey="count"
+                  stroke="#f97316"
+                  strokeWidth={1.5}
+                  fill="url(#updateFill)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Count Display */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded p-2 flex flex-col items-center justify-center">
+          <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Filtered / Total</span>
+          <div className="flex items-baseline gap-1 mt-1">
+            <span className="font-mono text-[22px] font-bold text-orange-400 leading-none">
+              {filteredEntities.length.toLocaleString()}
+            </span>
+            <span className="font-mono text-[12px] text-zinc-600">/</span>
+            <span className="font-mono text-[14px] text-zinc-400 leading-none">
+              {allEntities.length.toLocaleString()}
+            </span>
+          </div>
         </div>
       </div>
 

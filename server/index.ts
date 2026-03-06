@@ -423,7 +423,7 @@ async function fetchNewsEvents(): Promise<{ events: unknown[]; errors: string[] 
 
   try {
     const res = await fetch(
-      'https://api.gdeltproject.org/api/v2/geo/geo?query=*&format=geojson&timespan=24h',
+      'https://api.gdeltproject.org/api/v2/geo/geo?query=(conflict+OR+disaster+OR+crisis+OR+military+OR+earthquake)&format=geojson&timespan=24h',
       { signal: AbortSignal.timeout(15_000) },
     )
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -466,26 +466,49 @@ async function fetchConflictEvents(): Promise<{ events: unknown[]; errors: strin
     return { events: conflictCache.events, errors: conflictCache.errors }
   }
 
-  const results = await Promise.allSettled([
-    fetch('https://api.acleddata.com/acled/read?terms=accept&limit=500', { signal: AbortSignal.timeout(15_000) })
+  // ACLED requires OAuth registration; UCDP requires email-requested token
+  // Use ACLED with key if available, otherwise skip gracefully
+  const ACLED_KEY = process.env.ACLED_API_KEY ?? ''
+  const ACLED_EMAIL = process.env.ACLED_EMAIL ?? ''
+  const UCDP_TOKEN = process.env.UCDP_TOKEN ?? ''
+
+  const fetchers: Array<Promise<ReturnType<typeof parseACLEDEvents>>> = []
+  const fetcherNames: string[] = []
+
+  if (ACLED_KEY && ACLED_EMAIL) {
+    fetchers.push(
+      fetch(`https://api.acleddata.com/acled/read?key=${ACLED_KEY}&email=${ACLED_EMAIL}&limit=500`, { signal: AbortSignal.timeout(15_000) })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+        .then(json => parseACLEDEvents(json))
+    )
+    fetcherNames.push('ACLED')
+  }
+
+  const ucdpHeaders: Record<string, string> = {}
+  if (UCDP_TOKEN) ucdpHeaders['x-ucdp-access-token'] = UCDP_TOKEN
+  fetchers.push(
+    fetch('https://ucdpapi.pcr.uu.se/api/gedevents/25.1?pagesize=100', {
+      signal: AbortSignal.timeout(15_000),
+      headers: ucdpHeaders,
+    })
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
-      .then(json => parseACLEDEvents(json)),
-    fetch('https://ucdpapi.pcr.uu.se/api/gedevents/24.1?pagesize=100', { signal: AbortSignal.timeout(15_000) })
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
-      .then(json => parseUCDPEvents(json)),
-  ])
+      .then(json => parseUCDPEvents(json))
+  )
+  fetcherNames.push('UCDP')
+
+  const results = await Promise.allSettled(fetchers)
 
   const events: unknown[] = []
   const errors: string[] = []
-  const sourceNames = ['ACLED', 'UCDP']
   for (let i = 0; i < results.length; i++) {
     const result = results[i]
     if (result.status === 'fulfilled') events.push(...result.value)
     else {
-      errors.push(`${sourceNames[i]}: ${result.reason?.message ?? 'Unknown error'}`)
-      console.warn(`[Conflict] ${sourceNames[i]} failed: ${result.reason?.message}`)
+      errors.push(`${fetcherNames[i]}: ${result.reason?.message ?? 'Unknown error'}`)
+      console.warn(`[Conflict] ${fetcherNames[i]} failed: ${result.reason?.message}`)
     }
   }
+  if (!ACLED_KEY) errors.push('ACLED: No API key (set ACLED_API_KEY + ACLED_EMAIL)')
 
   conflictCache = { events, errors, fetchedAt: Date.now() }
   console.log(`[Conflict] ${events.length} events, ${errors.length} source errors`)
@@ -524,16 +547,50 @@ async function fetchCyberEvents(): Promise<{ events: unknown[]; errors: string[]
   const events: unknown[] = []
   const errors: string[] = []
 
-  // AbuseIPDB
+  // AbuseIPDB — fetch blacklist then batch-geolocate each IP
   if (ABUSEIPDB_KEY) {
     try {
-      const res = await fetch('https://api.abuseipdb.com/api/v2/blacklist?confidenceMinimum=90&limit=100', {
+      const res = await fetch('https://api.abuseipdb.com/api/v2/blacklist?confidenceMinimum=90&limit=50', {
         headers: { Key: ABUSEIPDB_KEY, Accept: 'application/json' },
         signal: AbortSignal.timeout(15_000),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const json = await res.json()
-      events.push(...parseAbuseIPDB(json))
+      const blacklist = await res.json() as { data?: Array<{ ipAddress: string; abuseConfidenceScore: number; countryCode: string; totalReports: number; lastReportedAt: string }> }
+
+      if (blacklist.data && blacklist.data.length > 0) {
+        // Batch geolocate IPs using ip-api.com (free, up to 100 per batch, 15 req/min)
+        const ipBatch = blacklist.data.map(e => e.ipAddress)
+        const geoRes = await fetch('http://ip-api.com/batch?fields=query,lat,lon,city,country,countryCode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(ipBatch),
+          signal: AbortSignal.timeout(10_000),
+        })
+
+        if (geoRes.ok) {
+          const geoData = await geoRes.json() as Array<{
+            query: string; lat: number; lon: number
+            city: string; country: string; countryCode: string
+          }>
+          const geoMap = new Map(geoData.filter(g => g.lat != null).map(g => [g.query, g]))
+
+          const enriched = blacklist.data.map(e => {
+            const geo = geoMap.get(e.ipAddress)
+            return {
+              ...e,
+              lat: geo?.lat,
+              lon: geo?.lon,
+              totalReports: e.totalReports ?? 0,
+              city: geo?.city,
+              geoCountry: geo?.country,
+            }
+          })
+          events.push(...parseAbuseIPDB({ data: enriched }))
+          console.log(`[Cyber] AbuseIPDB: ${events.length} events geolocated via ip-api.com`)
+        } else {
+          console.warn(`[Cyber] ip-api.com batch failed: HTTP ${geoRes.status}, skipping geo`)
+        }
+      }
     } catch (err) {
       errors.push(`AbuseIPDB: ${(err as Error).message}`)
     }
@@ -541,16 +598,16 @@ async function fetchCyberEvents(): Promise<{ events: unknown[]; errors: string[]
     errors.push('AbuseIPDB: No API key configured')
   }
 
-  // IODA - internet outages
+  // IODA - internet outages (API may require registration now, skip if fails)
   try {
     const res = await fetch('https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw/country?from=-1h', {
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(10_000),
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    // IODA results require country→lat/lon mapping; for now just note it
     console.log('[Cyber] IODA check completed')
   } catch (err) {
-    errors.push(`IODA: ${(err as Error).message}`)
+    // IODA is supplementary, don't treat as hard error
+    console.warn(`[Cyber] IODA unavailable: ${(err as Error).message}`)
   }
 
   cyberCache = { events, errors, fetchedAt: Date.now() }
@@ -592,16 +649,22 @@ async function fetchOsintPosts(): Promise<{ posts: unknown[]; errors: string[] }
     })
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then(json => parseRedditPosts(json)),
-    fetch('https://mastodon.social/api/v1/timelines/public?limit=40', {
+    fetch('https://mastodon.social/api/v1/trends/statuses?limit=40', {
       signal: AbortSignal.timeout(10_000),
     })
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then(json => parseMastodonPosts(json)),
-    fetch('https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=breaking+news&limit=25', {
-      signal: AbortSignal.timeout(10_000),
-    })
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
-      .then(json => parseBlueskyPosts(json)),
+    // Fetch from multiple Bluesky news accounts and merge
+    Promise.all(
+      ['apnews.com', 'reuters.com', 'bbc.com'].map(actor =>
+        fetch(`https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor=${actor}&limit=15`, {
+          signal: AbortSignal.timeout(10_000),
+        })
+          .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+          .then(json => parseBlueskyPosts(json))
+          .catch(() => [] as ReturnType<typeof parseBlueskyPosts>)
+      )
+    ).then(arrays => arrays.flat()),
   ])
 
   const posts: unknown[] = []
@@ -630,6 +693,253 @@ async function handleOsintPosts(): Promise<Response> {
   } catch (err) {
     console.error('[OSINT] Fetch error:', err)
     return Response.json({ posts: [], errors: ['All sources failed'] }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+}
+
+// ─── ARTICLE EXTRACTOR ──────────────────────────────────────────────────────
+
+import { Readability } from '@mozilla/readability'
+import { parseHTML } from 'linkedom'
+
+const articleCache = new Map<string, { data: unknown; fetchedAt: number }>()
+const ARTICLE_CACHE_TTL = 600_000 // 10 min
+
+async function handleArticleExtract(url: URL): Promise<Response> {
+  const articleUrl = url.searchParams.get('url')
+  if (!articleUrl) {
+    return Response.json({ error: 'Missing url parameter' }, {
+      status: 400,
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+
+  // Check cache
+  const cached = articleCache.get(articleUrl)
+  if (cached && Date.now() - cached.fetchedAt < ARTICLE_CACHE_TTL) {
+    return Response.json(cached.data, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+
+  try {
+    const res = await fetch(articleUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+      },
+      signal: AbortSignal.timeout(15_000),
+      redirect: 'follow',
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+    const html = await res.text()
+    const { document } = parseHTML(html)
+
+    const reader = new Readability(document as any)
+    const article = reader.parse()
+
+    if (!article) {
+      const data = { title: null, content: null, excerpt: null, siteName: null, error: 'Could not extract article' }
+      return Response.json(data, {
+        headers: { 'Access-Control-Allow-Origin': '*' },
+      })
+    }
+
+    // Strip <img> tags from article content — they often fail due to
+    // hotlink protection/CORS and cause layout shifts when retrying
+    const cleanContent = article.content
+      ?.replace(/<img[^>]*>/gi, '')
+      ?.replace(/<figure[^>]*>\s*<\/figure>/gi, '')
+      ?? null
+
+    const data = {
+      title: article.title,
+      content: cleanContent,
+      excerpt: article.excerpt,
+      siteName: article.siteName,
+      byline: article.byline,
+    }
+
+    articleCache.set(articleUrl, { data, fetchedAt: Date.now() })
+    console.log(`[Article] Extracted: ${article.title?.slice(0, 60)}`)
+
+    return Response.json(data, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  } catch (err) {
+    console.warn(`[Article] Extract failed for ${articleUrl}: ${(err as Error).message}`)
+    return Response.json({ title: null, content: null, error: (err as Error).message }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+}
+
+// ─── OSINT COMMENTS ─────────────────────────────────────────────────────────
+
+interface OsintComment {
+  id: string
+  author: string
+  text: string
+  htmlContent?: string
+  time: number
+  score?: number
+  replies?: OsintComment[]
+}
+
+function parseRedditCommentTree(children: any[], maxDepth = 3, depth = 0): OsintComment[] {
+  if (depth >= maxDepth || !Array.isArray(children)) return []
+  const comments: OsintComment[] = []
+  for (const child of children) {
+    if (child.kind !== 't1' || !child.data) continue
+    const d = child.data
+    if (!d.body || d.body === '[deleted]' || d.body === '[removed]') continue
+    comments.push({
+      id: d.id,
+      author: d.author ?? '[deleted]',
+      text: d.body ?? '',
+      time: (d.created_utc ?? 0) * 1000,
+      score: d.score,
+      replies: d.replies?.data?.children
+        ? parseRedditCommentTree(d.replies.data.children, maxDepth, depth + 1)
+        : undefined,
+    })
+  }
+  return comments
+}
+
+async function fetchRedditComments(postUrl: string): Promise<OsintComment[]> {
+  // postUrl is like https://reddit.com/r/worldnews/comments/abc123/title/
+  const jsonUrl = postUrl.endsWith('/') ? `${postUrl}.json` : `${postUrl}/.json`
+  const res = await fetch(jsonUrl, {
+    headers: { 'User-Agent': 'EagleEye/1.0' },
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const json = await res.json() as any[]
+  if (!Array.isArray(json) || json.length < 2) return []
+  const commentListing = json[1]
+  return parseRedditCommentTree(commentListing?.data?.children ?? [])
+}
+
+async function fetchMastodonComments(postUrl: string, postId: string): Promise<OsintComment[]> {
+  // Extract instance from URL (e.g., mastodon.social from https://mastodon.social/@user/123)
+  let instance: string
+  try {
+    instance = new URL(postUrl).hostname
+  } catch {
+    instance = 'mastodon.social'
+  }
+  const res = await fetch(`https://${instance}/api/v1/statuses/${postId}/context`, {
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const json = await res.json() as { descendants?: Array<{
+    id?: string; content?: string; created_at?: string
+    account?: { acct?: string }; favourites_count?: number
+    in_reply_to_id?: string | null
+  }> }
+
+  const descendants = json.descendants ?? []
+  // Build threaded structure
+  const commentMap = new Map<string, OsintComment & { parentId?: string | null }>()
+  for (const d of descendants) {
+    if (!d.id || !d.content) continue
+    const plainText = d.content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+    commentMap.set(d.id, {
+      id: d.id,
+      author: d.account?.acct ?? 'unknown',
+      text: plainText,
+      htmlContent: d.content,
+      time: d.created_at ? new Date(d.created_at).getTime() : Date.now(),
+      score: d.favourites_count,
+      parentId: d.in_reply_to_id,
+      replies: [],
+    })
+  }
+
+  // Thread them
+  const roots: OsintComment[] = []
+  for (const comment of commentMap.values()) {
+    const parentId = (comment as any).parentId
+    const parent = parentId ? commentMap.get(parentId) : null
+    if (parent) {
+      if (!parent.replies) parent.replies = []
+      parent.replies.push(comment)
+    } else {
+      roots.push(comment)
+    }
+  }
+  return roots
+}
+
+async function fetchBlueskyComments(postUri: string): Promise<OsintComment[]> {
+  const res = await fetch(
+    `https://public.api.bsky.app/xrpc/app.bsky.feed.getPostThread?uri=${encodeURIComponent(postUri)}&depth=3`,
+    { signal: AbortSignal.timeout(10_000) },
+  )
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const json = await res.json() as any
+
+  function parseThread(replies: any[], depth = 0): OsintComment[] {
+    if (!Array.isArray(replies) || depth >= 3) return []
+    const comments: OsintComment[] = []
+    for (const reply of replies) {
+      const post = reply.post
+      if (!post?.record?.text) continue
+      comments.push({
+        id: post.cid ?? post.uri ?? '',
+        author: post.author?.handle ?? 'unknown',
+        text: post.record.text,
+        time: post.record.createdAt ? new Date(post.record.createdAt).getTime() : Date.now(),
+        score: post.likeCount,
+        replies: reply.replies ? parseThread(reply.replies, depth + 1) : undefined,
+      })
+    }
+    return comments
+  }
+
+  return parseThread(json.thread?.replies ?? [])
+}
+
+const commentsCache = new Map<string, { data: unknown; fetchedAt: number }>()
+const COMMENTS_CACHE_TTL = 300_000 // 5 min
+
+async function handleOsintComments(url: URL): Promise<Response> {
+  const platform = url.searchParams.get('platform')
+  const postUrl = url.searchParams.get('url') ?? ''
+  const postId = url.searchParams.get('id') ?? ''
+
+  if (!platform) {
+    return Response.json({ comments: [], error: 'Missing platform' }, {
+      status: 400, headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+
+  const cacheKey = `${platform}:${postUrl || postId}`
+  const cached = commentsCache.get(cacheKey)
+  if (cached && Date.now() - cached.fetchedAt < COMMENTS_CACHE_TTL) {
+    return Response.json(cached.data, { headers: { 'Access-Control-Allow-Origin': '*' } })
+  }
+
+  try {
+    let comments: OsintComment[] = []
+    if (platform === 'reddit') {
+      comments = await fetchRedditComments(postUrl)
+    } else if (platform === 'mastodon') {
+      comments = await fetchMastodonComments(postUrl, postId)
+    } else if (platform === 'bluesky') {
+      comments = await fetchBlueskyComments(postUrl)
+    }
+
+    const data = { comments, error: null }
+    commentsCache.set(cacheKey, { data, fetchedAt: Date.now() })
+    console.log(`[Comments] ${platform}: ${comments.length} top-level comments`)
+    return Response.json(data, { headers: { 'Access-Control-Allow-Origin': '*' } })
+  } catch (err) {
+    console.warn(`[Comments] ${platform} failed: ${(err as Error).message}`)
+    return Response.json({ comments: [], error: (err as Error).message }, {
       headers: { 'Access-Control-Allow-Origin': '*' },
     })
   }
@@ -684,31 +994,102 @@ interface CameraCacheEntry { cameras: unknown[]; errors: string[]; fetchedAt: nu
 let cameraCache: CameraCacheEntry | null = null
 const CAMERA_CACHE_TTL = 600_000 // 10 min
 
-async function fetchCameras(lat: number, lon: number, radius: number): Promise<{ cameras: unknown[]; errors: string[] }> {
+// Sample points around the globe for broad camera coverage
+const CAMERA_REGIONS: Array<{ lat: number; lon: number; label: string }> = [
+  // North America
+  { lat: 40.7, lon: -74.0, label: 'New York' },
+  { lat: 34.0, lon: -118.2, label: 'Los Angeles' },
+  { lat: 41.9, lon: -87.6, label: 'Chicago' },
+  { lat: 25.8, lon: -80.2, label: 'Miami' },
+  { lat: 49.3, lon: -123.1, label: 'Vancouver' },
+  // Europe
+  { lat: 51.5, lon: -0.1, label: 'London' },
+  { lat: 48.9, lon: 2.3, label: 'Paris' },
+  { lat: 52.5, lon: 13.4, label: 'Berlin' },
+  { lat: 41.9, lon: 12.5, label: 'Rome' },
+  { lat: 40.4, lon: -3.7, label: 'Madrid' },
+  { lat: 59.9, lon: 10.8, label: 'Oslo' },
+  { lat: 55.7, lon: 37.6, label: 'Moscow' },
+  // Middle East
+  { lat: 25.2, lon: 55.3, label: 'Dubai' },
+  { lat: 24.5, lon: 54.7, label: 'Abu Dhabi' },
+  { lat: 26.6, lon: 56.3, label: 'Strait of Hormuz' },
+  { lat: 30.0, lon: 32.6, label: 'Suez Canal' },
+  { lat: 31.8, lon: 35.2, label: 'Jerusalem' },
+  { lat: 32.1, lon: 34.8, label: 'Tel Aviv' },
+  { lat: 31.5, lon: 34.5, label: 'Gaza' },
+  { lat: 33.9, lon: 35.5, label: 'Beirut' },
+  { lat: 33.5, lon: 36.3, label: 'Damascus' },
+  { lat: 36.2, lon: 37.2, label: 'Aleppo' },
+  { lat: 33.3, lon: 44.4, label: 'Baghdad' },
+  { lat: 36.3, lon: 43.1, label: 'Mosul' },
+  { lat: 30.5, lon: 47.8, label: 'Basra' },
+  { lat: 35.7, lon: 51.4, label: 'Tehran' },
+  { lat: 32.7, lon: 51.7, label: 'Isfahan' },
+  { lat: 34.5, lon: 69.2, label: 'Kabul' },
+  { lat: 31.6, lon: 65.7, label: 'Kandahar' },
+  { lat: 24.7, lon: 46.7, label: 'Riyadh' },
+  { lat: 21.4, lon: 39.8, label: 'Jeddah' },
+  { lat: 29.4, lon: 48.0, label: 'Kuwait City' },
+  { lat: 15.4, lon: 44.2, label: 'Sanaa' },
+  { lat: 12.8, lon: 45.0, label: 'Aden' },
+  { lat: 23.6, lon: 58.5, label: 'Muscat' },
+  // Asia
+  { lat: 35.7, lon: 139.7, label: 'Tokyo' },
+  { lat: 22.3, lon: 114.2, label: 'Hong Kong' },
+  { lat: 1.3, lon: 103.8, label: 'Singapore' },
+  { lat: 28.6, lon: 77.2, label: 'Delhi' },
+  // South America
+  { lat: -23.5, lon: -46.6, label: 'São Paulo' },
+  { lat: -34.6, lon: -58.4, label: 'Buenos Aires' },
+  // Africa / Oceania
+  { lat: -33.9, lon: 18.4, label: 'Cape Town' },
+  { lat: -33.9, lon: 151.2, label: 'Sydney' },
+]
+
+async function fetchCameras(): Promise<{ cameras: unknown[]; errors: string[] }> {
   if (cameraCache && Date.now() - cameraCache.fetchedAt < CAMERA_CACHE_TTL) {
     return { cameras: cameraCache.cameras, errors: cameraCache.errors }
   }
 
   const cameras: unknown[] = []
   const errors: string[] = []
+  const seenIds = new Set<string>()
 
   if (WINDY_KEY) {
-    try {
-      const res = await fetch(
-        `https://api.windy.com/webcams/api/v3/webcams?nearby=${lat},${lon},${radius}&limit=100&include=location,image,player`,
-        {
-          headers: { 'x-windy-api-key': WINDY_KEY },
-          signal: AbortSignal.timeout(15_000),
-        },
+    // Fetch from multiple regions in parallel (batched to avoid rate limits)
+    const batchSize = 5
+    for (let i = 0; i < CAMERA_REGIONS.length; i += batchSize) {
+      const batch = CAMERA_REGIONS.slice(i, i + batchSize)
+      const results = await Promise.allSettled(
+        batch.map(async (region) => {
+          const res = await fetch(
+            `https://api.windy.com/webcams/api/v3/webcams?nearby=${region.lat},${region.lon},250&limit=50&include=location,images,player`,
+            {
+              headers: { 'x-windy-api-key': WINDY_KEY },
+              signal: AbortSignal.timeout(15_000),
+            },
+          )
+          if (!res.ok) throw new Error(`HTTP ${res.status} for ${region.label}`)
+          const json = await res.json()
+          const parsed = parseWindyCameras(json)
+          return { region: region.label, parsed }
+        })
       )
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const json = await res.json()
-      cameras.push(...parseWindyCameras(json))
-      console.log(`[Cameras] Windy: ${cameras.length} cameras`)
-    } catch (err) {
-      errors.push(`Windy: ${(err as Error).message}`)
-      console.warn(`[Cameras] Windy failed: ${(err as Error).message}`)
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          for (const cam of result.value.parsed) {
+            if (!seenIds.has(cam.id)) {
+              seenIds.add(cam.id)
+              cameras.push(cam)
+            }
+          }
+        } else {
+          errors.push(`Windy: ${result.reason}`)
+        }
+      }
     }
+    console.log(`[Cameras] Windy: ${cameras.length} cameras from ${CAMERA_REGIONS.length} regions`)
   } else {
     errors.push('Windy: No API key configured (WINDY_WEBCAMS_KEY)')
   }
@@ -717,13 +1098,9 @@ async function fetchCameras(lat: number, lon: number, radius: number): Promise<{
   return { cameras, errors }
 }
 
-async function handleCameras(url: URL): Promise<Response> {
-  const lat = parseFloat(url.searchParams.get('lat') ?? '40')
-  const lon = parseFloat(url.searchParams.get('lon') ?? '-74')
-  const radius = parseInt(url.searchParams.get('radius') ?? '5000')
-
+async function handleCameras(_url: URL): Promise<Response> {
   try {
-    const { cameras, errors } = await fetchCameras(lat, lon, radius)
+    const { cameras, errors } = await fetchCameras()
     return Response.json({ cameras, errors }, {
       headers: { 'Access-Control-Allow-Origin': '*' },
     })
@@ -735,9 +1112,111 @@ async function handleCameras(url: URL): Promise<Response> {
   }
 }
 
+async function handleCameraScan(url: URL): Promise<Response> {
+  const lat = parseFloat(url.searchParams.get('lat') ?? '0')
+  const lon = parseFloat(url.searchParams.get('lon') ?? '0')
+  const radius = Math.min(parseInt(url.searchParams.get('radius') ?? '250'), 250)
+
+  if (!WINDY_KEY) {
+    return Response.json({ cameras: [], errors: ['No API key'] }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+
+  try {
+    const res = await fetch(
+      `https://api.windy.com/webcams/api/v3/webcams?nearby=${lat},${lon},${radius}&limit=50&include=location,images,player`,
+      {
+        headers: { 'x-windy-api-key': WINDY_KEY },
+        signal: AbortSignal.timeout(15_000),
+      },
+    )
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const json = await res.json()
+    const cameras = parseWindyCameras(json)
+    console.log(`[Cameras] Scan ${lat.toFixed(1)},${lon.toFixed(1)}: ${cameras.length} cameras`)
+    return Response.json({ cameras, errors: [] }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  } catch (err) {
+    console.error('[Cameras] Scan error:', err)
+    return Response.json({ cameras: [], errors: [(err as Error).message] }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+}
+
 // ─── PORTS PROXY ────────────────────────────────────────────────────────────
 
 import { parsePortsGeoJSON, parsePortsList } from '../src/lib/ports-client'
+
+const MAJOR_PORTS = [
+  { name: 'Shanghai', country: 'CN', lat: 31.23, lon: 121.47, size: 'Large', type: 'River' },
+  { name: 'Singapore', country: 'SG', lat: 1.26, lon: 103.84, size: 'Large', type: 'Coastal' },
+  { name: 'Ningbo-Zhoushan', country: 'CN', lat: 29.87, lon: 121.54, size: 'Large', type: 'Coastal' },
+  { name: 'Shenzhen', country: 'CN', lat: 22.54, lon: 114.06, size: 'Large', type: 'Coastal' },
+  { name: 'Guangzhou', country: 'CN', lat: 23.08, lon: 113.32, size: 'Large', type: 'River' },
+  { name: 'Busan', country: 'KR', lat: 35.10, lon: 129.03, size: 'Large', type: 'Coastal' },
+  { name: 'Qingdao', country: 'CN', lat: 36.07, lon: 120.38, size: 'Large', type: 'Coastal' },
+  { name: 'Hong Kong', country: 'HK', lat: 22.29, lon: 114.17, size: 'Large', type: 'Coastal' },
+  { name: 'Tianjin', country: 'CN', lat: 38.98, lon: 117.72, size: 'Large', type: 'Coastal' },
+  { name: 'Rotterdam', country: 'NL', lat: 51.89, lon: 4.50, size: 'Large', type: 'River' },
+  { name: 'Dubai (Jebel Ali)', country: 'AE', lat: 25.00, lon: 55.06, size: 'Large', type: 'Coastal' },
+  { name: 'Port Klang', country: 'MY', lat: 3.00, lon: 101.39, size: 'Large', type: 'Coastal' },
+  { name: 'Antwerp', country: 'BE', lat: 51.23, lon: 4.40, size: 'Large', type: 'River' },
+  { name: 'Xiamen', country: 'CN', lat: 24.48, lon: 118.09, size: 'Large', type: 'Coastal' },
+  { name: 'Kaohsiung', country: 'TW', lat: 22.61, lon: 120.29, size: 'Large', type: 'Coastal' },
+  { name: 'Hamburg', country: 'DE', lat: 53.55, lon: 9.97, size: 'Large', type: 'River' },
+  { name: 'Los Angeles', country: 'US', lat: 33.74, lon: -118.26, size: 'Large', type: 'Coastal' },
+  { name: 'Long Beach', country: 'US', lat: 33.75, lon: -118.19, size: 'Large', type: 'Coastal' },
+  { name: 'Tanjung Pelepas', country: 'MY', lat: 1.36, lon: 103.55, size: 'Large', type: 'Coastal' },
+  { name: 'Laem Chabang', country: 'TH', lat: 13.08, lon: 100.88, size: 'Large', type: 'Coastal' },
+  { name: 'Ho Chi Minh City', country: 'VN', lat: 10.77, lon: 106.70, size: 'Large', type: 'River' },
+  { name: 'New York/New Jersey', country: 'US', lat: 40.68, lon: -74.04, size: 'Large', type: 'Coastal' },
+  { name: 'Savannah', country: 'US', lat: 32.08, lon: -81.09, size: 'Large', type: 'River' },
+  { name: 'Colombo', country: 'LK', lat: 6.94, lon: 79.85, size: 'Large', type: 'Coastal' },
+  { name: 'Piraeus', country: 'GR', lat: 37.94, lon: 23.64, size: 'Large', type: 'Coastal' },
+  { name: 'Felixstowe', country: 'GB', lat: 51.96, lon: 1.33, size: 'Large', type: 'Coastal' },
+  { name: 'Valencia', country: 'ES', lat: 39.44, lon: -0.32, size: 'Large', type: 'Coastal' },
+  { name: 'Algeciras', country: 'ES', lat: 36.13, lon: -5.44, size: 'Large', type: 'Coastal' },
+  { name: 'Tanger Med', country: 'MA', lat: 35.87, lon: -5.50, size: 'Large', type: 'Coastal' },
+  { name: 'Santos', country: 'BR', lat: -23.95, lon: -46.30, size: 'Large', type: 'Coastal' },
+  { name: 'Yokohama', country: 'JP', lat: 35.44, lon: 139.64, size: 'Large', type: 'Coastal' },
+  { name: 'Tokyo', country: 'JP', lat: 35.65, lon: 139.77, size: 'Large', type: 'Coastal' },
+  { name: 'Kobe', country: 'JP', lat: 34.68, lon: 135.20, size: 'Large', type: 'Coastal' },
+  { name: 'Mumbai (JNPT)', country: 'IN', lat: 18.95, lon: 72.95, size: 'Large', type: 'Coastal' },
+  { name: 'Durban', country: 'ZA', lat: -29.87, lon: 31.03, size: 'Large', type: 'Coastal' },
+  { name: 'Bremerhaven', country: 'DE', lat: 53.55, lon: 8.58, size: 'Large', type: 'Coastal' },
+  { name: 'Suez Canal (Port Said)', country: 'EG', lat: 31.26, lon: 32.31, size: 'Large', type: 'Coastal' },
+  { name: 'Panama Canal (Balboa)', country: 'PA', lat: 8.95, lon: -79.57, size: 'Large', type: 'Coastal' },
+  { name: 'Strait of Malacca', country: 'MY', lat: 2.50, lon: 101.80, size: 'Medium', type: 'Coastal' },
+  { name: 'Cape Town', country: 'ZA', lat: -33.92, lon: 18.44, size: 'Medium', type: 'Coastal' },
+  { name: 'Sydney', country: 'AU', lat: -33.86, lon: 151.21, size: 'Medium', type: 'Coastal' },
+  { name: 'Melbourne', country: 'AU', lat: -37.82, lon: 144.95, size: 'Medium', type: 'Coastal' },
+  { name: 'Vancouver', country: 'CA', lat: 49.29, lon: -123.11, size: 'Large', type: 'Coastal' },
+  { name: 'Houston', country: 'US', lat: 29.76, lon: -95.27, size: 'Large', type: 'River' },
+  { name: 'Manzanillo', country: 'MX', lat: 19.05, lon: -104.32, size: 'Medium', type: 'Coastal' },
+  { name: 'Cartagena', country: 'CO', lat: 10.39, lon: -75.51, size: 'Medium', type: 'Coastal' },
+  { name: 'Callao', country: 'PE', lat: -12.05, lon: -77.14, size: 'Medium', type: 'Coastal' },
+  { name: 'Mombasa', country: 'KE', lat: -4.04, lon: 39.67, size: 'Medium', type: 'Coastal' },
+  { name: 'Dar es Salaam', country: 'TZ', lat: -6.82, lon: 39.29, size: 'Medium', type: 'Coastal' },
+  { name: 'Murmansk', country: 'RU', lat: 68.97, lon: 33.09, size: 'Medium', type: 'Coastal' },
+  { name: 'Vladivostok', country: 'RU', lat: 43.12, lon: 131.89, size: 'Medium', type: 'Coastal' },
+  { name: 'Novorossiysk', country: 'RU', lat: 44.72, lon: 37.77, size: 'Medium', type: 'Coastal' },
+  { name: 'Haifa', country: 'IL', lat: 32.82, lon: 34.99, size: 'Medium', type: 'Coastal' },
+  { name: 'Karachi', country: 'PK', lat: 24.85, lon: 67.00, size: 'Large', type: 'Coastal' },
+  { name: 'Chittagong', country: 'BD', lat: 22.33, lon: 91.81, size: 'Medium', type: 'River' },
+  { name: 'Manila', country: 'PH', lat: 14.58, lon: 120.97, size: 'Large', type: 'Coastal' },
+  { name: 'Jakarta (Tanjung Priok)', country: 'ID', lat: -6.10, lon: 106.87, size: 'Large', type: 'Coastal' },
+  { name: 'Le Havre', country: 'FR', lat: 49.49, lon: 0.11, size: 'Large', type: 'Coastal' },
+  { name: 'Genoa', country: 'IT', lat: 44.41, lon: 8.93, size: 'Medium', type: 'Coastal' },
+  { name: 'Barcelona', country: 'ES', lat: 41.35, lon: 2.16, size: 'Medium', type: 'Coastal' },
+  { name: 'Gdansk', country: 'PL', lat: 54.37, lon: 18.64, size: 'Medium', type: 'Coastal' },
+  { name: 'Gothenburg', country: 'SE', lat: 57.71, lon: 11.97, size: 'Medium', type: 'Coastal' },
+  { name: 'Jeddah', country: 'SA', lat: 21.49, lon: 39.19, size: 'Large', type: 'Coastal' },
+  { name: 'Djibouti', country: 'DJ', lat: 11.59, lon: 43.15, size: 'Medium', type: 'Coastal' },
+  { name: 'Aden', country: 'YE', lat: 12.79, lon: 45.03, size: 'Medium', type: 'Coastal' },
+]
 
 interface PortCacheEntry { ports: unknown[]; errors: string[]; fetchedAt: number }
 let portCache: PortCacheEntry | null = null
@@ -751,20 +1230,30 @@ async function fetchPorts(): Promise<{ ports: unknown[]; errors: string[] }> {
   const errors: string[] = []
   let ports: unknown[] = []
 
-  // Try NGA World Port Index
+  // Try multiple port data sources with fallback to embedded data
+  let fetched = false
+
+  // Attempt 1: ArcGIS public FeatureServer (NGA WPI mirror)
   try {
     const res = await fetch(
-      'https://msi.nga.mil/api/publications/download?type=view&key=16920959/SFH00000/WPI.json',
+      'https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/World_Port_Index/FeatureServer/0/query?where=1%3D1&outFields=*&f=geojson&resultRecordCount=2000',
       { signal: AbortSignal.timeout(20_000) },
     )
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const json = await res.json()
     ports = parsePortsGeoJSON(json)
-    if (ports.length === 0) ports = parsePortsList(json as unknown)
-    console.log(`[Ports] NGA WPI: ${ports.length} ports`)
+    if (ports.length > 0) {
+      fetched = true
+      console.log(`[Ports] ArcGIS WPI: ${ports.length} ports`)
+    }
   } catch (err) {
-    errors.push(`NGA WPI: ${(err as Error).message}`)
-    console.warn(`[Ports] NGA WPI failed: ${(err as Error).message}`)
+    console.warn(`[Ports] ArcGIS failed: ${(err as Error).message}`)
+  }
+
+  // Fallback: embedded major world ports
+  if (!fetched) {
+    ports = parsePortsList(MAJOR_PORTS)
+    console.log(`[Ports] Using embedded fallback: ${ports.length} ports`)
   }
 
   portCache = { ports, errors, fetchedAt: Date.now() }
@@ -798,18 +1287,43 @@ async function fetchRFSpots(): Promise<{ spots: unknown[]; errors: string[] }> {
     return { spots: rfCache.spots, errors: rfCache.errors }
   }
 
+  // PSK Reporter returns XML — fetch and convert to our format
+  // RBN has no public JSON API — skip
+  // SatNOGS observations API is the working source
   const results = await Promise.allSettled([
-    fetch('https://pskreporter.info/cgi-bin/psk-freq.pl?mode=ALL&fmt=json&rptlimit=100', {
+    fetch('https://retrieve.pskreporter.info/query?mode=FT8&rptlimit=100&flowStartSeconds=-900&statistics=0&noactive=1', {
       signal: AbortSignal.timeout(15_000),
+      headers: { Accept: 'application/xml' },
     })
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
-      .then(json => parsePSKReporterSpots(json)),
-    fetch('https://www.reversebeacon.net/spots.php?r=100&fmt=json', {
-      signal: AbortSignal.timeout(15_000),
-    })
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
-      .then(json => parseRBNSpots(json)),
-    fetch('https://db.satnogs.org/api/transmitters/?format=json&limit=50', {
+      .then(async r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        const text = await r.text()
+        // Parse XML reception reports into our format
+        const spots: ReturnType<typeof parsePSKReporterSpots> = []
+        const reportRegex = /<receptionReport[^>]*\s+senderCallsign="([^"]*)"[^>]*\s+receiverCallsign="([^"]*)"[^>]*\s+frequency="([^"]*)"[^>]*\s+mode="([^"]*)"[^>]*(?:\s+sNR="([^"]*)")?[^>]*(?:\s+senderLatitude="([^"]*)")?[^>]*(?:\s+senderLongitude="([^"]*)")?[^>]*(?:\s+receiverLatitude="([^"]*)")?[^>]*(?:\s+receiverLongitude="([^"]*)")?/g
+        let match
+        let idx = 0
+        while ((match = reportRegex.exec(text)) !== null) {
+          const sLat = parseFloat(match[6] ?? '')
+          const sLon = parseFloat(match[7] ?? '')
+          const rLat = parseFloat(match[8] ?? '')
+          const rLon = parseFloat(match[9] ?? '')
+          if (isNaN(sLat) || isNaN(rLat)) continue
+          spots.push({
+            id: `psk-${match[1]}-${match[2]}-${idx++}`,
+            frequency: parseInt(match[3] ?? '0'),
+            mode: match[4] ?? 'FT8',
+            txCall: match[1] ?? '', txLat: sLat, txLon: sLon,
+            rxCall: match[2] ?? '', rxLat: rLat, rxLon: rLon,
+            snr: parseInt(match[5] ?? '0') || 0,
+            time: Date.now(),
+            source: 'psk' as const,
+          })
+        }
+        console.log(`[RF] PSK Reporter: parsed ${spots.length} spots from XML`)
+        return spots
+      }),
+    fetch('https://network.satnogs.org/api/observations/?format=json&status=good&ground_station=&satellite__norad_cat_id=&vetted_status=&page_size=50', {
       signal: AbortSignal.timeout(15_000),
     })
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
@@ -818,7 +1332,7 @@ async function fetchRFSpots(): Promise<{ spots: unknown[]; errors: string[] }> {
 
   const spots: unknown[] = []
   const errors: string[] = []
-  const sourceNames = ['PSK Reporter', 'RBN', 'SatNOGS']
+  const sourceNames = ['PSK Reporter', 'SatNOGS']
   for (let i = 0; i < results.length; i++) {
     const result = results[i]
     if (result.status === 'fulfilled') spots.push(...result.value)
@@ -1001,8 +1515,11 @@ Bun.serve<{ path: string }>({
     if (url.pathname === '/api/conflicts/events') return handleConflictEvents()
     if (url.pathname === '/api/cyber/events') return handleCyberEvents()
     if (url.pathname === '/api/osint/posts') return handleOsintPosts()
+    if (url.pathname === '/api/article/extract') return handleArticleExtract(url)
+    if (url.pathname === '/api/osint/comments') return handleOsintComments(url)
     if (url.pathname === '/api/sanctions/check') return handleSanctionsCheck(url)
     if (url.pathname === '/api/cameras/nearby') return handleCameras(url)
+    if (url.pathname === '/api/cameras/scan') return handleCameraScan(url)
     if (url.pathname === '/api/ports/data') return handlePorts()
     if (url.pathname === '/api/rf/spots') return handleRFSpots()
     if (url.pathname === '/api/economic/indicators') return handleEconomicIndicators()

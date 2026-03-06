@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import mapboxgl from 'mapbox-gl'
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/Tooltip'
 
 interface MapScreenshotProps {
   map: mapboxgl.Map | null
@@ -21,12 +22,18 @@ export function MapScreenshot({ map }: MapScreenshotProps) {
   }, [map])
 
   return (
-    <button
-      onClick={handleScreenshot}
-      className="px-3 py-1.5 text-xs font-mono uppercase tracking-wider rounded-md border bg-zinc-900/90 text-zinc-400 border-zinc-700 hover:text-zinc-200 backdrop-blur-sm transition-colors"
-      title="Save map screenshot"
-    >
-      Screenshot
-    </button>
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={handleScreenshot}
+            className="px-3 py-1.5 text-xs font-mono uppercase tracking-wider rounded-md border bg-zinc-900/90 text-zinc-400 border-zinc-700 hover:text-zinc-200 backdrop-blur-sm transition-colors"
+          >
+            Screenshot
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Save map screenshot</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }
