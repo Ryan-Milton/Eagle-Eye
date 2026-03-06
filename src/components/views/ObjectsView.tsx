@@ -7,12 +7,14 @@ import { useWeatherStore } from '@/stores/weather-store'
 import { useNewsStore } from '@/stores/news-store'
 import { useConflictStore } from '@/stores/conflict-store'
 import { useCyberStore } from '@/stores/cyber-store'
+import { useOsintStore } from '@/stores/osint-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { useAppStore } from '@/stores/app-store'
+import { exportCSV, exportGeoJSON } from '@/lib/export'
 
 interface UnifiedEntity {
   id: string
-  domain: 'satellite' | 'vessel' | 'flight' | 'weather' | 'news' | 'conflict' | 'cyber'
+  domain: 'satellite' | 'vessel' | 'flight' | 'weather' | 'news' | 'conflict' | 'cyber' | 'osint'
   name: string
   subtype: string
   lat: number
@@ -33,6 +35,7 @@ const DOMAIN_COLORS: Record<string, string> = {
   news: 'text-rose-400',
   conflict: 'text-red-400',
   cyber: 'text-purple-400',
+  osint: 'text-teal-400',
 }
 
 const DOMAIN_LABELS: Record<string, string> = {
@@ -43,6 +46,7 @@ const DOMAIN_LABELS: Record<string, string> = {
   news: 'NEWS',
   conflict: 'CON',
   cyber: 'CYB',
+  osint: 'OSINT',
 }
 
 const ROW_HEIGHT = 32
@@ -64,9 +68,10 @@ export function ObjectsView() {
   const { events: newsEvents, version: newsVersion } = useNewsStore()
   const { events: conflictEvents, version: conflictVersion } = useConflictStore()
   const { events: cyberEvents, version: cyberVersion } = useCyberStore()
+  const { posts: osintPosts, version: osintVersion } = useOsintStore()
 
   const allEntities = useMemo(() => {
-    void satVersion; void vesselVersion; void flightVersion; void weatherVersion; void newsVersion; void conflictVersion; void cyberVersion
+    void satVersion; void vesselVersion; void flightVersion; void weatherVersion; void newsVersion; void conflictVersion; void cyberVersion; void osintVersion
     const entities: UnifiedEntity[] = []
 
     // Satellites
@@ -174,8 +179,22 @@ export function ObjectsView() {
       })
     }
 
+    // OSINT
+    for (const [, p] of osintPosts) {
+      entities.push({
+        id: p.id,
+        domain: 'osint',
+        name: p.text.slice(0, 60),
+        subtype: p.platform,
+        lat: p.lat, lon: p.lon,
+        speed: null,
+        magnitude: null,
+        lastUpdate: p.lastUpdate,
+      })
+    }
+
     return entities
-  }, [satVersion, vesselVersion, flightVersion, weatherVersion, newsVersion, conflictVersion, cyberVersion, toggles, getSatellites, getPositions, vessels, flights, weatherEvents, newsEvents, conflictEvents, cyberEvents])
+  }, [satVersion, vesselVersion, flightVersion, weatherVersion, newsVersion, conflictVersion, cyberVersion, osintVersion, toggles, getSatellites, getPositions, vessels, flights, weatherEvents, newsEvents, conflictEvents, cyberEvents, osintPosts])
 
   const filteredEntities = useMemo(() => {
     let list = allEntities
@@ -244,7 +263,15 @@ export function ObjectsView() {
     if (scrollRef.current) setScrollTop(scrollRef.current.scrollTop)
   }, [])
 
-  const domains = ['satellite', 'vessel', 'flight', 'weather', 'news', 'conflict', 'cyber']
+  const domains = ['satellite', 'vessel', 'flight', 'weather', 'news', 'conflict', 'cyber', 'osint']
+
+  const handleExportCSV = useCallback(() => {
+    exportCSV(filteredEntities, `eagle-eye-${new Date().toISOString().slice(0, 10)}.csv`)
+  }, [filteredEntities])
+
+  const handleExportGeoJSON = useCallback(() => {
+    exportGeoJSON(filteredEntities, `eagle-eye-${new Date().toISOString().slice(0, 10)}.geojson`)
+  }, [filteredEntities])
 
   return (
     <div className="fixed top-[46px] left-64 right-[272px] bottom-[34px] bg-zinc-950 flex flex-col">
@@ -275,9 +302,13 @@ export function ObjectsView() {
             </button>
           ))}
         </div>
-        <span className="ml-auto font-mono text-[11px] text-zinc-500">
-          {filteredEntities.length.toLocaleString()} entities
-        </span>
+        <div className="ml-auto flex items-center gap-2">
+          <button onClick={handleExportCSV} className="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded border border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500 transition-colors">CSV</button>
+          <button onClick={handleExportGeoJSON} className="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded border border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500 transition-colors">GeoJSON</button>
+          <span className="font-mono text-[11px] text-zinc-500">
+            {filteredEntities.length.toLocaleString()} entities
+          </span>
+        </div>
       </div>
 
       {/* Header */}
