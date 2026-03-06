@@ -1329,7 +1329,12 @@ export function MapboxGlobeView() {
           {(['standard', 'nvg', 'thermal', 'crt'] as const).map((mode, i) => (
             <button
               key={mode}
-              onClick={() => setVizMode(mode)}
+              onClick={() => {
+                setVizMode(mode)
+                if ((mode === 'nvg' || mode === 'thermal') && mapStyle !== 'dark') {
+                  handleStyleChange('dark')
+                }
+              }}
               className={cn(
                 'px-2 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors',
                 vizMode === mode
