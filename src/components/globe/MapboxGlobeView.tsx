@@ -9,7 +9,10 @@ import { useVesselStore } from '@/stores/vessel-store'
 import { useFlightStore } from '@/stores/flight-store'
 import { useWeatherStore } from '@/stores/weather-store'
 import { useSelectionStore } from '@/stores/selection-store'
+import { useAppStore } from '@/stores/app-store'
 import { WEATHER_TYPE_DOT_COLORS } from '@/lib/colors'
+import { CoordinateHUD } from './CoordinateHUD'
+import { MeasurementTool } from './MeasurementTool'
 import type { ConstellationId, SatellitePosition, VesselRecord, FlightRecord, VesselType, FlightType, WeatherEvent, WeatherEventType } from '@/types'
 import type { PositionHistory } from '@/lib/position-history'
 
@@ -81,10 +84,12 @@ function buildVesselGeoJSON(
   vessels: Map<number, VesselRecord>,
   selectedMmsi: number | null,
   vesselTypeToggles: Map<VesselType, boolean>,
+  timelineCursor?: number,
 ): GeoJSONFeatureCollection {
   const features: GeoJSON.Feature<GeoJSON.Point>[] = []
   for (const [mmsi, v] of vessels) {
     if (vesselTypeToggles.get(v.type) === false) continue
+    if (timelineCursor && v.lastUpdate > timelineCursor) continue
     features.push({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [v.lon, v.lat] },
@@ -102,10 +107,12 @@ function buildFlightGeoJSON(
   flights: Map<string, FlightRecord>,
   selectedIcao: string | null,
   flightTypeToggles: Map<FlightType, boolean>,
+  timelineCursor?: number,
 ): GeoJSONFeatureCollection {
   const features: GeoJSON.Feature<GeoJSON.Point>[] = []
   for (const [icao24, f] of flights) {
     if (flightTypeToggles.get(f.type) === false) continue
+    if (timelineCursor && f.lastUpdate > timelineCursor) continue
     features.push({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [f.lon, f.lat] },
@@ -124,10 +131,12 @@ function buildWeatherGeoJSON(
   events: Map<string, WeatherEvent>,
   selectedEventId: string | null,
   typeToggles: Map<WeatherEventType, boolean>,
+  timelineCursor?: number,
 ): GeoJSONFeatureCollection {
   const features: GeoJSON.Feature<GeoJSON.Point>[] = []
   for (const [id, e] of events) {
     if (typeToggles.get(e.type) === false) continue
+    if (timelineCursor && e.lastUpdate > timelineCursor) continue
     features.push({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [e.lon, e.lat] },
@@ -248,14 +257,45 @@ function addEntityLayers(map: mapboxgl.Map) {
     } as mapboxgl.SymbolLayerSpecification['paint'],
   })
 
+  // --- Vessels with clustering ---
   map.addSource('vessels', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
+    cluster: true,
+    clusterMaxZoom: 14,
+    clusterRadius: 50,
   })
+  // Cluster circles
+  map.addLayer({
+    id: 'vessels-cluster',
+    type: 'circle',
+    source: 'vessels',
+    filter: ['has', 'point_count'],
+    paint: {
+      'circle-color': VESSEL_COLOR,
+      'circle-opacity': 0.6,
+      'circle-radius': ['step', ['get', 'point_count'], 14, 50, 18, 200, 22],
+    },
+  })
+  map.addLayer({
+    id: 'vessels-cluster-count',
+    type: 'symbol',
+    source: 'vessels',
+    filter: ['has', 'point_count'],
+    layout: {
+      'text-field': '{point_count_abbreviated}',
+      'text-font': ['DIN Pro Medium', 'Arial Unicode MS Bold'],
+      'text-size': 11,
+      'text-allow-overlap': true,
+    },
+    paint: { 'text-color': '#ffffff' },
+  })
+  // Individual vessel points
   map.addLayer({
     id: 'vessels-layer',
     type: 'circle',
     source: 'vessels',
+    filter: ['!', ['has', 'point_count']],
     paint: {
       'circle-radius': ['case', ['get', 'selected'], 6, 3],
       'circle-color': VESSEL_COLOR,
@@ -265,14 +305,43 @@ function addEntityLayers(map: mapboxgl.Map) {
     },
   })
 
+  // --- Flights with clustering ---
   map.addSource('flights', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
+    cluster: true,
+    clusterMaxZoom: 14,
+    clusterRadius: 50,
+  })
+  map.addLayer({
+    id: 'flights-cluster',
+    type: 'circle',
+    source: 'flights',
+    filter: ['has', 'point_count'],
+    paint: {
+      'circle-color': FLIGHT_COLOR,
+      'circle-opacity': 0.6,
+      'circle-radius': ['step', ['get', 'point_count'], 14, 50, 18, 200, 22],
+    },
+  })
+  map.addLayer({
+    id: 'flights-cluster-count',
+    type: 'symbol',
+    source: 'flights',
+    filter: ['has', 'point_count'],
+    layout: {
+      'text-field': '{point_count_abbreviated}',
+      'text-font': ['DIN Pro Medium', 'Arial Unicode MS Bold'],
+      'text-size': 11,
+      'text-allow-overlap': true,
+    },
+    paint: { 'text-color': '#ffffff' },
   })
   map.addLayer({
     id: 'flights-layer',
     type: 'circle',
     source: 'flights',
+    filter: ['!', ['has', 'point_count']],
     paint: {
       'circle-radius': ['case', ['get', 'selected'], 6, 3],
       'circle-color': FLIGHT_COLOR,
@@ -307,15 +376,43 @@ function addEntityLayers(map: mapboxgl.Map) {
     },
   })
 
-  // Weather event points
+  // --- Weather events with clustering ---
   map.addSource('weather-events', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
+    cluster: true,
+    clusterMaxZoom: 14,
+    clusterRadius: 50,
+  })
+  map.addLayer({
+    id: 'weather-events-cluster',
+    type: 'circle',
+    source: 'weather-events',
+    filter: ['has', 'point_count'],
+    paint: {
+      'circle-color': '#fb7185',
+      'circle-opacity': 0.6,
+      'circle-radius': ['step', ['get', 'point_count'], 14, 50, 18, 200, 22],
+    },
+  })
+  map.addLayer({
+    id: 'weather-events-cluster-count',
+    type: 'symbol',
+    source: 'weather-events',
+    filter: ['has', 'point_count'],
+    layout: {
+      'text-field': '{point_count_abbreviated}',
+      'text-font': ['DIN Pro Medium', 'Arial Unicode MS Bold'],
+      'text-size': 11,
+      'text-allow-overlap': true,
+    },
+    paint: { 'text-color': '#ffffff' },
   })
   map.addLayer({
     id: 'weather-events-layer',
     type: 'circle',
     source: 'weather-events',
+    filter: ['!', ['has', 'point_count']],
     paint: {
       'circle-radius': [
         'case',
@@ -333,10 +430,12 @@ function addEntityLayers(map: mapboxgl.Map) {
 }
 
 const ENTITY_LAYERS = ['satellites-layer', 'vessels-layer', 'flights-layer', 'weather-events-layer'] as const
+const CLUSTER_LAYERS = ['vessels-cluster', 'flights-cluster', 'weather-events-cluster'] as const
 
 export function MapboxGlobeView() {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
+  const [mapReady, setMapReady] = useState(false)
   const [mapStyle, setMapStyle] = useState<MapStyle>('dark')
   const layersReadyRef = useRef(false)
 
@@ -359,6 +458,8 @@ export function MapboxGlobeView() {
   const selectedMmsi = useSelectionStore(s => s.selectedMmsi)
   const selectedIcao = useSelectionStore(s => s.selectedIcao)
   const selectedEventId = useSelectionStore(s => s.selectedEventId)
+  const timelineCursor = useAppStore(s => s.timelineCursor)
+  const timelineLive = useAppStore(s => s.timelineLive)
 
   // Initialize map once
   useEffect(() => {
@@ -406,6 +507,28 @@ export function MapboxGlobeView() {
       }
     })
 
+    // Cluster click → expand zoom
+    for (const clusterLayer of CLUSTER_LAYERS) {
+      const sourceId = clusterLayer.replace('-cluster', '')
+      map.on('click', clusterLayer, (e) => {
+        const features = map.queryRenderedFeatures(e.point, { layers: [clusterLayer] })
+        if (!features.length) return
+        const clusterId = features[0].properties?.cluster_id
+        if (clusterId == null) return
+        const src = map.getSource(sourceId) as mapboxgl.GeoJSONSource | undefined
+        if (!src) return
+        src.getClusterExpansionZoom(clusterId, (_err, zoom) => {
+          if (_err || zoom == null) return
+          const geom = features[0].geometry
+          if (geom.type === 'Point') {
+            map.easeTo({ center: geom.coordinates as [number, number], zoom })
+          }
+        })
+      })
+      map.on('mouseenter', clusterLayer, () => { map.getCanvas().style.cursor = 'pointer' })
+      map.on('mouseleave', clusterLayer, () => { map.getCanvas().style.cursor = '' })
+    }
+
     map.on('click', (e) => {
       const features = map.queryRenderedFeatures(e.point, { layers: [...ENTITY_LAYERS] })
       if (features.length === 0) {
@@ -419,11 +542,13 @@ export function MapboxGlobeView() {
     }
 
     mapRef.current = map
+    setMapReady(true)
 
     return () => {
       layersReadyRef.current = false
       map.remove()
       mapRef.current = null
+      setMapReady(false)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -448,6 +573,55 @@ export function MapboxGlobeView() {
     return () => { map.off('style.load', onStyleLoad) }
   }, [mapStyle])
 
+  // --- Fly-to on entity selection ---
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    // Satellite selected
+    if (selectedSatId !== null) {
+      // Find position from all enabled constellations
+      for (const [id, enabled] of toggles) {
+        if (!enabled) continue
+        const pos = getPositions(id).find(p => p.noradId === selectedSatId)
+        if (pos) {
+          map.flyTo({ center: [pos.lon, pos.lat], zoom: 3, duration: 1500 })
+          return
+        }
+      }
+    }
+
+    // Vessel selected
+    if (selectedMmsi !== null) {
+      const v = vessels.get(selectedMmsi)
+      if (v) {
+        map.flyTo({ center: [v.lon, v.lat], zoom: 6, duration: 1500 })
+        return
+      }
+    }
+
+    // Flight selected
+    if (selectedIcao !== null) {
+      const f = flights.get(selectedIcao)
+      if (f) {
+        map.flyTo({ center: [f.lon, f.lat], zoom: 6, duration: 1500 })
+        return
+      }
+    }
+
+    // Weather event selected
+    if (selectedEventId !== null) {
+      const e = weatherEvents.get(selectedEventId)
+      if (e) {
+        map.flyTo({ center: [e.lon, e.lat], zoom: 5, duration: 1500 })
+        return
+      }
+    }
+  }, [selectedSatId, selectedMmsi, selectedIcao, selectedEventId, toggles, getPositions, vessels, flights, weatherEvents])
+
+  // Use timeline cursor only when not live
+  const cursorForFilter = timelineLive ? undefined : timelineCursor
+
   // Sync satellite data
   useEffect(() => {
     const map = mapRef.current
@@ -461,26 +635,26 @@ export function MapboxGlobeView() {
     const map = mapRef.current
     if (!map || !layersReadyRef.current) return
     const src = map.getSource('vessels') as mapboxgl.GeoJSONSource | undefined
-    if (src) src.setData(buildVesselGeoJSON(vessels, selectedMmsi, vesselTypeToggles))
-  }, [vesselVersion, vessels, selectedMmsi, vesselTypeToggles])
+    if (src) src.setData(buildVesselGeoJSON(vessels, selectedMmsi, vesselTypeToggles, cursorForFilter))
+  }, [vesselVersion, vessels, selectedMmsi, vesselTypeToggles, cursorForFilter])
 
   // Sync flight data
   useEffect(() => {
     const map = mapRef.current
     if (!map || !layersReadyRef.current) return
     const src = map.getSource('flights') as mapboxgl.GeoJSONSource | undefined
-    if (src) src.setData(buildFlightGeoJSON(flights, selectedIcao, flightTypeToggles))
-  }, [flightVersion, flights, selectedIcao, flightTypeToggles])
+    if (src) src.setData(buildFlightGeoJSON(flights, selectedIcao, flightTypeToggles, cursorForFilter))
+  }, [flightVersion, flights, selectedIcao, flightTypeToggles, cursorForFilter])
 
   // Sync weather data
   useEffect(() => {
     const map = mapRef.current
     if (!map || !layersReadyRef.current) return
     const src = map.getSource('weather-events') as mapboxgl.GeoJSONSource | undefined
-    if (src) src.setData(buildWeatherGeoJSON(weatherEvents, selectedEventId, weatherTypeToggles))
+    if (src) src.setData(buildWeatherGeoJSON(weatherEvents, selectedEventId, weatherTypeToggles, cursorForFilter))
     const alertSrc = map.getSource('weather-alerts') as mapboxgl.GeoJSONSource | undefined
     if (alertSrc) alertSrc.setData(buildWeatherAlertGeoJSON(weatherEvents, weatherTypeToggles))
-  }, [weatherVersion, weatherEvents, selectedEventId, weatherTypeToggles])
+  }, [weatherVersion, weatherEvents, selectedEventId, weatherTypeToggles, cursorForFilter])
 
   // Sync trail data
   useEffect(() => {
@@ -498,19 +672,19 @@ export function MapboxGlobeView() {
       const satSrc = map.getSource('satellites') as mapboxgl.GeoJSONSource | undefined
       if (satSrc) satSrc.setData(buildSatelliteGeoJSON(toggles, getPositions, selectedSatId))
       const vesselSrc = map.getSource('vessels') as mapboxgl.GeoJSONSource | undefined
-      if (vesselSrc) vesselSrc.setData(buildVesselGeoJSON(vessels, selectedMmsi, vesselTypeToggles))
+      if (vesselSrc) vesselSrc.setData(buildVesselGeoJSON(vessels, selectedMmsi, vesselTypeToggles, cursorForFilter))
       const flightSrc = map.getSource('flights') as mapboxgl.GeoJSONSource | undefined
-      if (flightSrc) flightSrc.setData(buildFlightGeoJSON(flights, selectedIcao, flightTypeToggles))
+      if (flightSrc) flightSrc.setData(buildFlightGeoJSON(flights, selectedIcao, flightTypeToggles, cursorForFilter))
       const trailSrc = map.getSource('entity-trail') as mapboxgl.GeoJSONSource | undefined
       if (trailSrc) trailSrc.setData(buildTrailGeoJSON(flightHistory, vesselHistory, selectedIcao, selectedMmsi))
       const weatherSrc = map.getSource('weather-events') as mapboxgl.GeoJSONSource | undefined
-      if (weatherSrc) weatherSrc.setData(buildWeatherGeoJSON(weatherEvents, selectedEventId, weatherTypeToggles))
+      if (weatherSrc) weatherSrc.setData(buildWeatherGeoJSON(weatherEvents, selectedEventId, weatherTypeToggles, cursorForFilter))
       const alertSrc = map.getSource('weather-alerts') as mapboxgl.GeoJSONSource | undefined
       if (alertSrc) alertSrc.setData(buildWeatherAlertGeoJSON(weatherEvents, weatherTypeToggles))
     }
     map.on('style.load', syncAll)
     return () => { map.off('style.load', syncAll) }
-  }, [toggles, getPositions, selectedSatId, satVersion, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory, weatherEvents, selectedEventId, weatherVersion, weatherTypeToggles])
+  }, [toggles, getPositions, selectedSatId, satVersion, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory, weatherEvents, selectedEventId, weatherVersion, weatherTypeToggles, cursorForFilter])
 
   return (
     <div className="fixed top-[46px] left-64 right-[272px] bottom-[34px]">
@@ -534,6 +708,10 @@ export function MapboxGlobeView() {
           </button>
         ))}
       </div>
+
+      {/* Map overlays */}
+      <CoordinateHUD map={mapReady ? mapRef.current : null} />
+      <MeasurementTool map={mapReady ? mapRef.current : null} />
     </div>
   )
 }
