@@ -8,13 +8,16 @@ import { useNewsStore } from '@/stores/news-store'
 import { useConflictStore } from '@/stores/conflict-store'
 import { useCyberStore } from '@/stores/cyber-store'
 import { useOsintStore } from '@/stores/osint-store'
+import { usePortStore } from '@/stores/port-store'
+import { useRFStore } from '@/stores/rf-store'
+import { useEconomicStore } from '@/stores/economic-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { useAppStore } from '@/stores/app-store'
 import { exportCSV, exportGeoJSON } from '@/lib/export'
 
 interface UnifiedEntity {
   id: string
-  domain: 'satellite' | 'vessel' | 'flight' | 'weather' | 'news' | 'conflict' | 'cyber' | 'osint'
+  domain: 'satellite' | 'vessel' | 'flight' | 'weather' | 'news' | 'conflict' | 'cyber' | 'osint' | 'port' | 'rf' | 'economic'
   name: string
   subtype: string
   lat: number
@@ -36,6 +39,9 @@ const DOMAIN_COLORS: Record<string, string> = {
   conflict: 'text-red-400',
   cyber: 'text-purple-400',
   osint: 'text-teal-400',
+  port: 'text-blue-400',
+  rf: 'text-violet-400',
+  economic: 'text-emerald-400',
 }
 
 const DOMAIN_LABELS: Record<string, string> = {
@@ -47,6 +53,9 @@ const DOMAIN_LABELS: Record<string, string> = {
   conflict: 'CON',
   cyber: 'CYB',
   osint: 'OSINT',
+  port: 'PORT',
+  rf: 'RF',
+  economic: 'ECON',
 }
 
 const ROW_HEIGHT = 32
@@ -69,9 +78,12 @@ export function ObjectsView() {
   const { events: conflictEvents, version: conflictVersion } = useConflictStore()
   const { events: cyberEvents, version: cyberVersion } = useCyberStore()
   const { posts: osintPosts, version: osintVersion } = useOsintStore()
+  const { ports, version: portVersion } = usePortStore()
+  const { spots: rfSpots, version: rfVersion } = useRFStore()
+  const { indicators: econIndicators, version: econVersion } = useEconomicStore()
 
   const allEntities = useMemo(() => {
-    void satVersion; void vesselVersion; void flightVersion; void weatherVersion; void newsVersion; void conflictVersion; void cyberVersion; void osintVersion
+    void satVersion; void vesselVersion; void flightVersion; void weatherVersion; void newsVersion; void conflictVersion; void cyberVersion; void osintVersion; void portVersion; void rfVersion; void econVersion
     const entities: UnifiedEntity[] = []
 
     // Satellites
@@ -193,8 +205,50 @@ export function ObjectsView() {
       })
     }
 
+    // Ports
+    for (const [, p] of ports) {
+      entities.push({
+        id: p.id,
+        domain: 'port',
+        name: p.name,
+        subtype: p.size,
+        lat: p.lat, lon: p.lon,
+        speed: null,
+        magnitude: null,
+        lastUpdate: p.lastUpdate,
+      })
+    }
+
+    // RF
+    for (const [, s] of rfSpots) {
+      entities.push({
+        id: s.id,
+        domain: 'rf',
+        name: `${s.txCall} → ${s.rxCall}`,
+        subtype: s.source,
+        lat: s.rxLat, lon: s.rxLon,
+        speed: null,
+        magnitude: s.snr,
+        lastUpdate: s.time,
+      })
+    }
+
+    // Economic
+    for (const [, ind] of econIndicators) {
+      entities.push({
+        id: ind.id,
+        domain: 'economic',
+        name: `${ind.country} — ${ind.indicator}`,
+        subtype: ind.indicatorId,
+        lat: ind.lat, lon: ind.lon,
+        speed: null,
+        magnitude: ind.value,
+        lastUpdate: ind.lastUpdate,
+      })
+    }
+
     return entities
-  }, [satVersion, vesselVersion, flightVersion, weatherVersion, newsVersion, conflictVersion, cyberVersion, osintVersion, toggles, getSatellites, getPositions, vessels, flights, weatherEvents, newsEvents, conflictEvents, cyberEvents, osintPosts])
+  }, [satVersion, vesselVersion, flightVersion, weatherVersion, newsVersion, conflictVersion, cyberVersion, osintVersion, portVersion, rfVersion, econVersion, toggles, getSatellites, getPositions, vessels, flights, weatherEvents, newsEvents, conflictEvents, cyberEvents, osintPosts, ports, rfSpots, econIndicators])
 
   const filteredEntities = useMemo(() => {
     let list = allEntities

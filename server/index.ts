@@ -674,6 +674,174 @@ async function handleSanctionsCheck(url: URL): Promise<Response> {
   }
 }
 
+// ─── PORTS PROXY ────────────────────────────────────────────────────────────
+
+import { parsePortsGeoJSON, parsePortsList } from '../src/lib/ports-client'
+
+interface PortCacheEntry { ports: unknown[]; errors: string[]; fetchedAt: number }
+let portCache: PortCacheEntry | null = null
+const PORT_CACHE_TTL = 86_400_000 // 24 hours (static data)
+
+async function fetchPorts(): Promise<{ ports: unknown[]; errors: string[] }> {
+  if (portCache && Date.now() - portCache.fetchedAt < PORT_CACHE_TTL) {
+    return { ports: portCache.ports, errors: portCache.errors }
+  }
+
+  const errors: string[] = []
+  let ports: unknown[] = []
+
+  // Try NGA World Port Index
+  try {
+    const res = await fetch(
+      'https://msi.nga.mil/api/publications/download?type=view&key=16920959/SFH00000/WPI.json',
+      { signal: AbortSignal.timeout(20_000) },
+    )
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const json = await res.json()
+    ports = parsePortsGeoJSON(json)
+    if (ports.length === 0) ports = parsePortsList(json as unknown)
+    console.log(`[Ports] NGA WPI: ${ports.length} ports`)
+  } catch (err) {
+    errors.push(`NGA WPI: ${(err as Error).message}`)
+    console.warn(`[Ports] NGA WPI failed: ${(err as Error).message}`)
+  }
+
+  portCache = { ports, errors, fetchedAt: Date.now() }
+  return { ports, errors }
+}
+
+async function handlePorts(): Promise<Response> {
+  try {
+    const { ports, errors } = await fetchPorts()
+    return Response.json({ ports, errors }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  } catch (err) {
+    console.error('[Ports] Fetch error:', err)
+    return Response.json({ ports: [], errors: ['Fetch failed'] }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+}
+
+// ─── RF SPECTRUM PROXY ──────────────────────────────────────────────────────
+
+import { parsePSKReporterSpots, parseRBNSpots, parseSatNOGSObservations } from '../src/lib/rf-client'
+
+interface RFCacheEntry { spots: unknown[]; errors: string[]; fetchedAt: number }
+let rfCache: RFCacheEntry | null = null
+const RF_CACHE_TTL = 300_000 // 5 min
+
+async function fetchRFSpots(): Promise<{ spots: unknown[]; errors: string[] }> {
+  if (rfCache && Date.now() - rfCache.fetchedAt < RF_CACHE_TTL) {
+    return { spots: rfCache.spots, errors: rfCache.errors }
+  }
+
+  const results = await Promise.allSettled([
+    fetch('https://pskreporter.info/cgi-bin/psk-freq.pl?mode=ALL&fmt=json&rptlimit=100', {
+      signal: AbortSignal.timeout(15_000),
+    })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+      .then(json => parsePSKReporterSpots(json)),
+    fetch('https://www.reversebeacon.net/spots.php?r=100&fmt=json', {
+      signal: AbortSignal.timeout(15_000),
+    })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+      .then(json => parseRBNSpots(json)),
+    fetch('https://db.satnogs.org/api/transmitters/?format=json&limit=50', {
+      signal: AbortSignal.timeout(15_000),
+    })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+      .then(json => parseSatNOGSObservations(json)),
+  ])
+
+  const spots: unknown[] = []
+  const errors: string[] = []
+  const sourceNames = ['PSK Reporter', 'RBN', 'SatNOGS']
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]
+    if (result.status === 'fulfilled') spots.push(...result.value)
+    else {
+      errors.push(`${sourceNames[i]}: ${result.reason?.message ?? 'Unknown error'}`)
+      console.warn(`[RF] ${sourceNames[i]} failed: ${result.reason?.message}`)
+    }
+  }
+
+  rfCache = { spots, errors, fetchedAt: Date.now() }
+  console.log(`[RF] ${spots.length} spots, ${errors.length} source errors`)
+  return { spots, errors }
+}
+
+async function handleRFSpots(): Promise<Response> {
+  try {
+    const { spots, errors } = await fetchRFSpots()
+    return Response.json({ spots, errors }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  } catch (err) {
+    console.error('[RF] Fetch error:', err)
+    return Response.json({ spots: [], errors: ['All sources failed'] }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+}
+
+// ─── ECONOMIC DATA PROXY ────────────────────────────────────────────────────
+
+import { parseWorldBankData, ECONOMIC_INDICATORS } from '../src/lib/economic-client'
+
+interface EconCacheEntry { indicators: unknown[]; errors: string[]; fetchedAt: number }
+let econCache: EconCacheEntry | null = null
+const ECON_CACHE_TTL = 3_600_000 // 1 hour
+
+async function fetchEconomicIndicators(): Promise<{ indicators: unknown[]; errors: string[] }> {
+  if (econCache && Date.now() - econCache.fetchedAt < ECON_CACHE_TTL) {
+    return { indicators: econCache.indicators, errors: econCache.errors }
+  }
+
+  const indicators: unknown[] = []
+  const errors: string[] = []
+
+  // Fetch latest year data for each indicator from World Bank
+  const results = await Promise.allSettled(
+    ECONOMIC_INDICATORS.map(ind =>
+      fetch(
+        `https://api.worldbank.org/v2/country/all/indicator/${ind.id}?format=json&per_page=300&date=2022:2024&MRV=1`,
+        { signal: AbortSignal.timeout(15_000) },
+      )
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+        .then(json => parseWorldBankData(json, ind.id, ind.name))
+    )
+  )
+
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]
+    if (result.status === 'fulfilled') indicators.push(...result.value)
+    else {
+      errors.push(`${ECONOMIC_INDICATORS[i].name}: ${result.reason?.message ?? 'Unknown error'}`)
+      console.warn(`[Economic] ${ECONOMIC_INDICATORS[i].name} failed: ${result.reason?.message}`)
+    }
+  }
+
+  econCache = { indicators, errors, fetchedAt: Date.now() }
+  console.log(`[Economic] ${indicators.length} data points, ${errors.length} source errors`)
+  return { indicators, errors }
+}
+
+async function handleEconomicIndicators(): Promise<Response> {
+  try {
+    const { indicators, errors } = await fetchEconomicIndicators()
+    return Response.json({ indicators, errors }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  } catch (err) {
+    console.error('[Economic] Fetch error:', err)
+    return Response.json({ indicators: [], errors: ['All sources failed'] }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+}
+
 // ─── HEXDB PROXY ────────────────────────────────────────────────────────────
 
 const HEXDB = 'https://hexdb.io'
@@ -773,6 +941,9 @@ Bun.serve<{ path: string }>({
     if (url.pathname === '/api/cyber/events') return handleCyberEvents()
     if (url.pathname === '/api/osint/posts') return handleOsintPosts()
     if (url.pathname === '/api/sanctions/check') return handleSanctionsCheck(url)
+    if (url.pathname === '/api/ports/data') return handlePorts()
+    if (url.pathname === '/api/rf/spots') return handleRFSpots()
+    if (url.pathname === '/api/economic/indicators') return handleEconomicIndicators()
     if (url.pathname === '/api/hexdb/lookup') return handleHexdbLookup(url)
     if (url.pathname === '/api/hexdb/image') return handleHexdbImage(url)
 
@@ -823,7 +994,8 @@ Bun.serve<{ path: string }>({
 console.log(`[Eagle Eye] Backend listening on :${PORT}`)
 console.log(`  WebSocket: /ws/ais, /ws/flights`)
 console.log(`  HTTP API:  /api/weather/events, /api/weather/conditions, /api/news/events, /api/conflicts/events, /api/cyber/events`)
-console.log(`             /api/sanctions/check, /api/hexdb/lookup, /api/hexdb/image`)
+console.log(`             /api/osint/posts, /api/sanctions/check, /api/ports/data, /api/rf/spots, /api/economic/indicators`)
+console.log(`             /api/hexdb/lookup, /api/hexdb/image`)
 console.log(`  Health:    /health`)
 if (AIS_API_KEY) console.log('[AIS] API key configured')
 else console.warn('[AIS] Missing AIS_API_KEY — AIS proxy disabled')

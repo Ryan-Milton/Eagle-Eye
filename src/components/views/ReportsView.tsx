@@ -8,6 +8,9 @@ import { useNewsStore } from '@/stores/news-store'
 import { useConflictStore } from '@/stores/conflict-store'
 import { useCyberStore } from '@/stores/cyber-store'
 import { useOsintStore } from '@/stores/osint-store'
+import { usePortStore } from '@/stores/port-store'
+import { useRFStore } from '@/stores/rf-store'
+import { useEconomicStore } from '@/stores/economic-store'
 import { useAlertStore } from '@/stores/alert-store'
 
 export function ReportsView() {
@@ -21,12 +24,15 @@ export function ReportsView() {
   const conflictCount = useConflictStore(s => s.count)
   const cyberCount = useCyberStore(s => s.count)
   const osintCount = useOsintStore(s => s.count)
+  const portCount = usePortStore(s => s.count)
+  const rfCount = useRFStore(s => s.count)
+  const econCount = useEconomicStore(s => s.count)
   const alerts = useAlertStore(s => s.alerts)
   const unackCount = useAlertStore(s => s.unacknowledgedCount)
 
   const now = new Date()
   const report = useMemo(() => {
-    const totalEntities = satStats.enabledCount + vesselCount + flightCount + weatherCount + newsCount + conflictCount + cyberCount + osintCount
+    const totalEntities = satStats.enabledCount + vesselCount + flightCount + weatherCount + newsCount + conflictCount + cyberCount + osintCount + portCount + rfCount + econCount
     const criticalAlerts = alerts.filter(a => a.severity === 'critical').length
 
     return {
@@ -36,7 +42,7 @@ export function ReportsView() {
       sections: [
         {
           title: 'Executive Summary',
-          content: `Eagle Eye is currently tracking ${totalEntities.toLocaleString()} entities across 8 intelligence domains. ${criticalAlerts > 0 ? `There are ${criticalAlerts} critical alerts requiring immediate attention.` : 'No critical alerts at this time.'} All primary data feeds are ${vesselConnected && flightConnected ? 'operational' : 'partially degraded'}.`,
+          content: `Eagle Eye is currently tracking ${totalEntities.toLocaleString()} entities across 11 intelligence domains. ${criticalAlerts > 0 ? `There are ${criticalAlerts} critical alerts requiring immediate attention.` : 'No critical alerts at this time.'} All primary data feeds are ${vesselConnected && flightConnected ? 'operational' : 'partially degraded'}.`,
         },
         {
           title: 'Space Domain',
@@ -71,13 +77,25 @@ export function ReportsView() {
           content: `${osintCount} geolocated social media posts from Reddit, Mastodon, and Bluesky. Location extraction via named entity matching. 5-minute polling cycle.`,
         },
         {
+          title: 'Ports & Infrastructure',
+          content: `${portCount} ports from World Port Index (NGA). Categorized by harbor size (large/medium/small). Visible at zoom level 4+.`,
+        },
+        {
+          title: 'RF Spectrum',
+          content: `${rfCount} RF spots from PSK Reporter, Reverse Beacon Network, and SatNOGS. Monitoring HF through SHF band transmissions with arc visualizations.`,
+        },
+        {
+          title: 'Economic Indicators',
+          content: `${econCount} economic data points from World Bank. Tracking GDP, GDP Growth, Inflation (CPI), Unemployment, and Current Account Balance across 40+ countries.`,
+        },
+        {
           title: 'Active Alerts',
           content: `${alerts.length} total alerts (${unackCount} unacknowledged). ${criticalAlerts} critical, ${alerts.filter(a => a.severity === 'warning').length} warnings, ${alerts.filter(a => a.severity === 'info').length} informational.`,
         },
       ],
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [satStats, vesselCount, flightCount, weatherCount, newsCount, conflictCount, cyberCount, osintCount, alerts.length])
+  }, [satStats, vesselCount, flightCount, weatherCount, newsCount, conflictCount, cyberCount, osintCount, portCount, rfCount, econCount, alerts.length])
 
   const handleExportMarkdown = useCallback(() => {
     let md = `# Eagle Eye Situational Awareness Report\n\n`

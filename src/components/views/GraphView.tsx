@@ -7,6 +7,9 @@ import { useNewsStore } from '@/stores/news-store'
 import { useConflictStore } from '@/stores/conflict-store'
 import { useCyberStore } from '@/stores/cyber-store'
 import { useOsintStore } from '@/stores/osint-store'
+import { usePortStore } from '@/stores/port-store'
+import { useRFStore } from '@/stores/rf-store'
+import { useEconomicStore } from '@/stores/economic-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { useAppStore } from '@/stores/app-store'
 import { haversineDistance } from '@/lib/utils'
@@ -37,6 +40,9 @@ const DOMAIN_COLORS: Record<string, string> = {
   conflict: '#f87171',
   cyber: '#c084fc',
   osint: '#2dd4bf',
+  port: '#60a5fa',
+  rf: '#a78bfa',
+  economic: '#34d399',
 }
 
 const PROXIMITY_KM = 100
@@ -53,13 +59,16 @@ export function GraphView() {
   const { events: conflictEvents, version: cv } = useConflictStore()
   const { events: cyberEvents, version: cyv } = useCyberStore()
   const { posts: osintPosts, version: ov } = useOsintStore()
+  const { ports, version: pv } = usePortStore()
+  const { spots: rfSpots, version: rv } = useRFStore()
+  const { indicators: econIndicators, version: ev } = useEconomicStore()
 
   const { nodes, edges } = useMemo(() => {
-    void vv; void fv; void wv; void nv; void cv; void cyv; void ov
+    void vv; void fv; void wv; void nv; void cv; void cyv; void ov; void pv; void rv; void ev
     const allNodes: GraphNode[] = []
 
     // Sample entities from each domain (limit to MAX_NODES total)
-    const perDomain = Math.floor(MAX_NODES / 7)
+    const perDomain = Math.floor(MAX_NODES / 10)
 
     for (const [, v] of [...vessels].slice(0, perDomain)) {
       allNodes.push({ id: `v-${v.mmsi}`, domain: 'vessel', name: v.name || String(v.mmsi), lat: v.lat, lon: v.lon, x: 0, y: 0, vx: 0, vy: 0 })
@@ -81,6 +90,15 @@ export function GraphView() {
     }
     for (const [, p] of [...osintPosts].slice(0, perDomain)) {
       allNodes.push({ id: `o-${p.id}`, domain: 'osint', name: p.text.slice(0, 40), lat: p.lat, lon: p.lon, x: 0, y: 0, vx: 0, vy: 0 })
+    }
+    for (const [, p] of [...ports].slice(0, perDomain)) {
+      allNodes.push({ id: `p-${p.id}`, domain: 'port', name: p.name, lat: p.lat, lon: p.lon, x: 0, y: 0, vx: 0, vy: 0 })
+    }
+    for (const [, s] of [...rfSpots].slice(0, perDomain)) {
+      allNodes.push({ id: `r-${s.id}`, domain: 'rf', name: `${s.txCall}→${s.rxCall}`, lat: s.rxLat, lon: s.rxLon, x: 0, y: 0, vx: 0, vy: 0 })
+    }
+    for (const [, ind] of [...econIndicators].slice(0, perDomain)) {
+      allNodes.push({ id: `e-${ind.id}`, domain: 'economic', name: ind.country, lat: ind.lat, lon: ind.lon, x: 0, y: 0, vx: 0, vy: 0 })
     }
 
     // Initialize positions in a circle
@@ -104,7 +122,7 @@ export function GraphView() {
     }
 
     return { nodes: allNodes, edges: allEdges }
-  }, [vv, fv, wv, nv, cv, cyv, ov, vessels, flights, weatherEvents, newsEvents, conflictEvents, cyberEvents, osintPosts])
+  }, [vv, fv, wv, nv, cv, cyv, ov, pv, rv, ev, vessels, flights, weatherEvents, newsEvents, conflictEvents, cyberEvents, osintPosts, ports, rfSpots, econIndicators])
 
   useEffect(() => {
     const canvas = canvasRef.current

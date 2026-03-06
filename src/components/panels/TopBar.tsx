@@ -9,6 +9,9 @@ import { useNewsStore } from '@/stores/news-store'
 import { useConflictStore } from '@/stores/conflict-store'
 import { useCyberStore } from '@/stores/cyber-store'
 import { useOsintStore } from '@/stores/osint-store'
+import { usePortStore } from '@/stores/port-store'
+import { useRFStore } from '@/stores/rf-store'
+import { useEconomicStore } from '@/stores/economic-store'
 import { useAlertStore } from '@/stores/alert-store'
 import { useWatchlistStore } from '@/stores/watchlist-store'
 import type { NavView } from '@/types'
@@ -33,6 +36,12 @@ export function TopBar() {
   const cyberLastFetch = useCyberStore(s => s.lastFetch)
   const osintCount = useOsintStore(s => s.count)
   const osintLastFetch = useOsintStore(s => s.lastFetch)
+  const portCount = usePortStore(s => s.count)
+  const portLastFetch = usePortStore(s => s.lastFetch)
+  const rfCount = useRFStore(s => s.count)
+  const rfLastFetch = useRFStore(s => s.lastFetch)
+  const econCount = useEconomicStore(s => s.count)
+  const econLastFetch = useEconomicStore(s => s.lastFetch)
   const unackAlerts = useAlertStore(s => s.unacknowledgedCount)
   const watchlistSize = useWatchlistStore(s => s.watchlist.size)
 
@@ -112,6 +121,18 @@ export function TopBar() {
         <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px] text-zinc-600">
           <span className="text-teal-400">{osintCount}</span> OSINT
           <Pip color={osintLastFetch ? 'ok' : 'danger'} />
+        </div>
+        <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px] text-zinc-600">
+          <span className="text-blue-400">{portCount}</span> PORT
+          <Pip color={portLastFetch ? 'ok' : 'danger'} />
+        </div>
+        <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px] text-zinc-600">
+          <span className="text-violet-400">{rfCount}</span> RF
+          <Pip color={rfLastFetch ? 'ok' : 'danger'} />
+        </div>
+        <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px] text-zinc-600">
+          <span className="text-emerald-400">{econCount}</span> ECON
+          <Pip color={econLastFetch ? 'ok' : 'danger'} />
         </div>
         {unackAlerts > 0 && (
           <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px]">

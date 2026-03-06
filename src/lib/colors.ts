@@ -106,3 +106,43 @@ export const OSINT_PLATFORM_COLORS: Record<string, string> = {
 export const OSINT_PLATFORM_DOT_COLORS: Record<string, string> = {
   reddit: '#fb923c', mastodon: '#818cf8', bluesky: '#38bdf8',
 }
+
+// ─── Ports ───────────────────────────────────────────────────────────────
+
+export const PORT_SIZE_COLORS: Record<string, string> = {
+  large: 'text-blue-400 border-blue-800/60 bg-blue-950/40',
+  medium: 'text-sky-400 border-sky-800/60 bg-sky-950/40',
+  small: 'text-slate-400 border-slate-700/60 bg-slate-800/40',
+}
+
+export const PORT_SIZE_DOT_COLORS: Record<string, string> = {
+  large: '#60a5fa', medium: '#38bdf8', small: '#94a3b8',
+}
+
+// ─── RF Spectrum ─────────────────────────────────────────────────────────
+
+export const RF_SOURCE_COLORS: Record<string, string> = {
+  psk: 'text-violet-400 border-violet-800/60 bg-violet-950/40',
+  rbn: 'text-purple-400 border-purple-800/60 bg-purple-950/40',
+  satnogs: 'text-fuchsia-400 border-fuchsia-800/60 bg-fuchsia-950/40',
+}
+
+export const RF_SOURCE_DOT_COLORS: Record<string, string> = {
+  psk: '#a78bfa', rbn: '#c084fc', satnogs: '#e879f9',
+}
+
+// ─── Economic ────────────────────────────────────────────────────────────
+
+export const ECONOMIC_INDICATOR_COLORS: Record<string, string> = {
+  'NY.GDP.MKTP.CD': 'text-emerald-400 border-emerald-800/60 bg-emerald-950/40',
+  'NY.GDP.MKTP.KD.ZG': 'text-green-400 border-green-800/60 bg-green-950/40',
+  'FP.CPI.TOTL.ZG': 'text-amber-400 border-amber-800/60 bg-amber-950/40',
+  'SL.UEM.TOTL.ZS': 'text-red-400 border-red-800/60 bg-red-950/40',
+  'BN.CAB.XOKA.CD': 'text-blue-400 border-blue-800/60 bg-blue-950/40',
+}
+
+export const ECONOMIC_INDICATOR_DOT_COLORS: Record<string, string> = {
+  'NY.GDP.MKTP.CD': '#34d399', 'NY.GDP.MKTP.KD.ZG': '#4ade80',
+  'FP.CPI.TOTL.ZG': '#fbbf24', 'SL.UEM.TOTL.ZS': '#f87171',
+  'BN.CAB.XOKA.CD': '#60a5fa',
+}

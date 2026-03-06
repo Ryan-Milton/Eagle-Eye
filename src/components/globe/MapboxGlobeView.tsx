@@ -12,13 +12,18 @@ import { useNewsStore } from '@/stores/news-store'
 import { useConflictStore } from '@/stores/conflict-store'
 import { useCyberStore } from '@/stores/cyber-store'
 import { useOsintStore } from '@/stores/osint-store'
+import { usePortStore } from '@/stores/port-store'
+import { useRFStore } from '@/stores/rf-store'
+import { useEconomicStore } from '@/stores/economic-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { useAppStore } from '@/stores/app-store'
-import { WEATHER_TYPE_DOT_COLORS, NEWS_CATEGORY_DOT_COLORS, CONFLICT_TYPE_DOT_COLORS, CYBER_TYPE_DOT_COLORS, OSINT_PLATFORM_DOT_COLORS } from '@/lib/colors'
+import { WEATHER_TYPE_DOT_COLORS, NEWS_CATEGORY_DOT_COLORS, CONFLICT_TYPE_DOT_COLORS, CYBER_TYPE_DOT_COLORS, OSINT_PLATFORM_DOT_COLORS, RF_SOURCE_DOT_COLORS, PORT_SIZE_DOT_COLORS, ECONOMIC_INDICATOR_DOT_COLORS } from '@/lib/colors'
 import { CoordinateHUD } from './CoordinateHUD'
 import { MeasurementTool } from './MeasurementTool'
-import type { ConstellationId, SatellitePosition, VesselRecord, FlightRecord, VesselType, FlightType, WeatherEvent, WeatherEventType, NewsEvent, NewsCategory, ConflictEvent, ConflictEventType, CyberEvent, CyberEventType, OsintPlatform } from '@/types'
+import type { ConstellationId, SatellitePosition, VesselRecord, FlightRecord, VesselType, FlightType, WeatherEvent, WeatherEventType, NewsEvent, NewsCategory, ConflictEvent, ConflictEventType, CyberEvent, CyberEventType, OsintPlatform, RFSpot } from '@/types'
 import type { OsintPost } from '@/lib/osint-client'
+import type { Port } from '@/lib/ports-client'
+import type { EconomicIndicator } from '@/lib/economic-client'
 import type { PositionHistory } from '@/lib/position-history'
 
 type MapStyle = 'dark' | 'light'
@@ -299,6 +304,84 @@ function buildOsintGeoJSON(
         color: OSINT_PLATFORM_DOT_COLORS[p.platform] ?? '#2dd4bf',
         platform: p.platform,
         text: p.text.slice(0, 60),
+      },
+    })
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+function buildPortGeoJSON(
+  ports: Map<string, Port>,
+  visible: boolean,
+): GeoJSONFeatureCollection {
+  if (!visible) return { type: 'FeatureCollection', features: [] }
+  const features: GeoJSON.Feature<GeoJSON.Point>[] = []
+  for (const [, p] of ports) {
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+      properties: {
+        portId: p.id,
+        color: PORT_SIZE_DOT_COLORS[p.size] ?? '#94a3b8',
+        name: p.name,
+        size: p.size,
+      },
+    })
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+type RFSource = 'psk' | 'rbn' | 'satnogs'
+
+function buildRFGeoJSON(
+  spots: Map<string, RFSpot>,
+  sourceToggles: Map<RFSource, boolean>,
+): GeoJSON.FeatureCollection<GeoJSON.LineString | GeoJSON.Point> {
+  const features: GeoJSON.Feature<GeoJSON.LineString | GeoJSON.Point>[] = []
+  for (const [, spot] of spots) {
+    if (sourceToggles.get(spot.source) === false) continue
+    const color = RF_SOURCE_DOT_COLORS[spot.source] ?? '#a78bfa'
+    // Arc line from TX → RX (only if both have valid coords)
+    if (spot.txLat !== 0 && spot.txLon !== 0 && spot.rxLat !== 0 && spot.rxLon !== 0) {
+      features.push({
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: [[spot.txLon, spot.txLat], [spot.rxLon, spot.rxLat]],
+        },
+        properties: { color, source: spot.source, snr: spot.snr },
+      })
+    }
+    // RX station point
+    if (spot.rxLat !== 0 && spot.rxLon !== 0) {
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [spot.rxLon, spot.rxLat] },
+        properties: { color, source: spot.source },
+      })
+    }
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+function buildEconomicGeoJSON(
+  indicators: Map<string, EconomicIndicator>,
+  selectedIndicator: string,
+): GeoJSONFeatureCollection {
+  const features: GeoJSON.Feature<GeoJSON.Point>[] = []
+  for (const [, ind] of indicators) {
+    if (ind.indicatorId !== selectedIndicator) continue
+    if (ind.value == null) continue
+    const color = ECONOMIC_INDICATOR_DOT_COLORS[ind.indicatorId] ?? '#34d399'
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [ind.lon, ind.lat] },
+      properties: {
+        econId: ind.id,
+        color,
+        value: ind.value,
+        country: ind.country,
+        countryCode: ind.countryCode,
       },
     })
   }
@@ -720,9 +803,75 @@ function addEntityLayers(map: mapboxgl.Map) {
       'circle-stroke-color': '#2dd4bf',
     },
   })
+
+  // --- Ports (no clustering, zoom-dependent) ---
+  map.addSource('ports', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+  })
+  map.addLayer({
+    id: 'ports-layer',
+    type: 'circle',
+    source: 'ports',
+    minzoom: 4,
+    paint: {
+      'circle-radius': ['match', ['get', 'size'], 'large', 5, 'medium', 3.5, 2.5],
+      'circle-color': ['get', 'color'],
+      'circle-opacity': 0.7,
+      'circle-stroke-width': 1,
+      'circle-stroke-color': '#1e3a5f',
+    },
+  })
+
+  // --- RF Spectrum arcs ---
+  map.addSource('rf-spots', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+  })
+  map.addLayer({
+    id: 'rf-arcs-layer',
+    type: 'line',
+    source: 'rf-spots',
+    filter: ['==', '$type', 'LineString'],
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': 1.5,
+      'line-opacity': ['interpolate', ['linear'], ['coalesce', ['get', 'snr'], 5], 0, 0.2, 10, 0.5, 30, 0.8],
+    },
+  })
+  map.addLayer({
+    id: 'rf-stations-layer',
+    type: 'circle',
+    source: 'rf-spots',
+    filter: ['==', '$type', 'Point'],
+    paint: {
+      'circle-radius': 3,
+      'circle-color': ['get', 'color'],
+      'circle-opacity': 0.6,
+    },
+  })
+
+  // --- Economic indicators ---
+  map.addSource('economic', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+  })
+  map.addLayer({
+    id: 'economic-layer',
+    type: 'circle',
+    source: 'economic',
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['abs', ['coalesce', ['get', 'value'], 0]], 0, 4, 1e12, 14],
+      'circle-color': ['get', 'color'],
+      'circle-opacity': 0.5,
+      'circle-stroke-width': 1.5,
+      'circle-stroke-color': ['get', 'color'],
+      'circle-stroke-opacity': 0.8,
+    },
+  })
 }
 
-const ENTITY_LAYERS = ['satellites-layer', 'vessels-layer', 'flights-layer', 'weather-events-layer', 'news-events-layer', 'conflict-events-layer', 'cyber-events-layer', 'osint-posts-layer'] as const
+const ENTITY_LAYERS = ['satellites-layer', 'vessels-layer', 'flights-layer', 'weather-events-layer', 'news-events-layer', 'conflict-events-layer', 'cyber-events-layer', 'osint-posts-layer', 'ports-layer', 'rf-stations-layer', 'economic-layer'] as const
 const CLUSTER_LAYERS = ['vessels-cluster', 'flights-cluster', 'weather-events-cluster', 'news-events-cluster', 'conflict-events-cluster', 'cyber-events-cluster', 'osint-posts-cluster'] as const
 
 export function MapboxGlobeView() {
@@ -760,6 +909,15 @@ export function MapboxGlobeView() {
   const osintPosts = useOsintStore(s => s.posts)
   const osintVersion = useOsintStore(s => s.version)
   const osintPlatformToggles = useOsintStore(s => s.platformToggles)
+  const portData = usePortStore(s => s.ports)
+  const portVersion = usePortStore(s => s.version)
+  const portVisible = usePortStore(s => s.visible)
+  const rfSpots = useRFStore(s => s.spots)
+  const rfVersion = useRFStore(s => s.version)
+  const rfSourceToggles = useRFStore(s => s.sourceToggles)
+  const econIndicators = useEconomicStore(s => s.indicators)
+  const econVersion = useEconomicStore(s => s.version)
+  const selectedIndicator = useEconomicStore(s => s.selectedIndicator)
   const selectedMmsi = useSelectionStore(s => s.selectedMmsi)
   const selectedIcao = useSelectionStore(s => s.selectedIcao)
   const selectedEventId = useSelectionStore(s => s.selectedEventId)
@@ -1049,6 +1207,30 @@ export function MapboxGlobeView() {
     if (src) src.setData(buildOsintGeoJSON(osintPosts, osintPlatformToggles, cursorForFilter))
   }, [osintVersion, osintPosts, osintPlatformToggles, cursorForFilter])
 
+  // Sync port data
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+    const src = map.getSource('ports') as mapboxgl.GeoJSONSource | undefined
+    if (src) src.setData(buildPortGeoJSON(portData, portVisible))
+  }, [portVersion, portData, portVisible])
+
+  // Sync RF data
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+    const src = map.getSource('rf-spots') as mapboxgl.GeoJSONSource | undefined
+    if (src) src.setData(buildRFGeoJSON(rfSpots, rfSourceToggles))
+  }, [rfVersion, rfSpots, rfSourceToggles])
+
+  // Sync economic data
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+    const src = map.getSource('economic') as mapboxgl.GeoJSONSource | undefined
+    if (src) src.setData(buildEconomicGeoJSON(econIndicators, selectedIndicator))
+  }, [econVersion, econIndicators, selectedIndicator])
+
   // Sync all data after style change
   useEffect(() => {
     const map = mapRef.current
@@ -1074,11 +1256,17 @@ export function MapboxGlobeView() {
       if (cyberSrc) cyberSrc.setData(buildCyberGeoJSON(cyberEvents, selectedCyberId, cyberTypeToggles, cursorForFilter))
       const osintSrc = map.getSource('osint-posts') as mapboxgl.GeoJSONSource | undefined
       if (osintSrc) osintSrc.setData(buildOsintGeoJSON(osintPosts, osintPlatformToggles, cursorForFilter))
+      const portSrc = map.getSource('ports') as mapboxgl.GeoJSONSource | undefined
+      if (portSrc) portSrc.setData(buildPortGeoJSON(portData, portVisible))
+      const rfSrc = map.getSource('rf-spots') as mapboxgl.GeoJSONSource | undefined
+      if (rfSrc) rfSrc.setData(buildRFGeoJSON(rfSpots, rfSourceToggles))
+      const econSrc = map.getSource('economic') as mapboxgl.GeoJSONSource | undefined
+      if (econSrc) econSrc.setData(buildEconomicGeoJSON(econIndicators, selectedIndicator))
     }
     map.on('style.load', syncAll)
     return () => { map.off('style.load', syncAll) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toggles, getPositions, selectedSatId, satVersion, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory, weatherEvents, selectedEventId, weatherVersion, weatherTypeToggles, newsEvents, selectedNewsId, newsVersion, newsCategoryToggles, conflictEvents, selectedConflictId, conflictVersion, conflictTypeToggles, cyberEvents, selectedCyberId, cyberVersion, cyberTypeToggles, osintPosts, osintVersion, osintPlatformToggles, cursorForFilter])
+  }, [toggles, getPositions, selectedSatId, satVersion, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory, weatherEvents, selectedEventId, weatherVersion, weatherTypeToggles, newsEvents, selectedNewsId, newsVersion, newsCategoryToggles, conflictEvents, selectedConflictId, conflictVersion, conflictTypeToggles, cyberEvents, selectedCyberId, cyberVersion, cyberTypeToggles, osintPosts, osintVersion, osintPlatformToggles, portData, portVersion, portVisible, rfSpots, rfVersion, rfSourceToggles, econIndicators, econVersion, selectedIndicator, cursorForFilter])
 
   return (
     <div className="fixed top-[46px] left-64 right-[272px] bottom-[34px]">

@@ -7,6 +7,9 @@ import { useNewsInit } from '@/hooks/useNewsInit'
 import { useConflictInit } from '@/hooks/useConflictInit'
 import { useCyberInit } from '@/hooks/useCyberInit'
 import { useOsintInit } from '@/hooks/useOsintInit'
+import { usePortInit } from '@/hooks/usePortInit'
+import { useRFInit } from '@/hooks/useRFInit'
+import { useEconomicInit } from '@/hooks/useEconomicInit'
 import { useAlertEngine } from '@/hooks/useAlertEngine'
 import { usePersistence } from '@/hooks/usePersistence'
 import { TopBar } from '@/components/panels/TopBar'
@@ -28,6 +31,9 @@ export default function App() {
   useConflictInit()
   useCyberInit()
   useOsintInit()
+  usePortInit()
+  useRFInit()
+  useEconomicInit()
   useAlertEngine()
   usePersistence()
 
