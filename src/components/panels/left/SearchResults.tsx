@@ -1,11 +1,14 @@
 import { useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { CONSTELLATIONS } from '@/data/constellations'
-import { VESSEL_TYPE_COLORS, FLIGHT_TYPE_COLORS, WEATHER_TYPE_COLORS, WEATHER_TYPE_DOT_COLORS } from '@/lib/colors'
+import { VESSEL_TYPE_COLORS, FLIGHT_TYPE_COLORS, WEATHER_TYPE_COLORS, WEATHER_TYPE_DOT_COLORS, NEWS_CATEGORY_COLORS, NEWS_CATEGORY_DOT_COLORS, CONFLICT_TYPE_COLORS, CONFLICT_TYPE_DOT_COLORS, CYBER_TYPE_COLORS } from '@/lib/colors'
 import { useSatelliteStore } from '@/stores/satellite-store'
 import { useVesselStore } from '@/stores/vessel-store'
 import { useFlightStore } from '@/stores/flight-store'
 import { useWeatherStore } from '@/stores/weather-store'
+import { useNewsStore } from '@/stores/news-store'
+import { useConflictStore } from '@/stores/conflict-store'
+import { useCyberStore } from '@/stores/cyber-store'
 import { useSelectionStore } from '@/stores/selection-store'
 
 export function SearchResults({ query }: { query: string }) {
@@ -13,7 +16,10 @@ export function SearchResults({ query }: { query: string }) {
   const { vessels, version: vesselVersion } = useVesselStore()
   const { flights, version: flightVersion } = useFlightStore()
   const { events: weatherEvents, version: weatherVersion } = useWeatherStore()
-  const { selectedSatId, selectSatellite, selectedMmsi, selectVessel, selectedIcao, selectFlight, selectedEventId, selectEvent } = useSelectionStore()
+  const { events: newsEvents, version: newsVersion } = useNewsStore()
+  const { events: conflictEvents, version: conflictVersion } = useConflictStore()
+  const { events: cyberEvents, version: cyberVersion } = useCyberStore()
+  const { selectedSatId, selectSatellite, selectedMmsi, selectVessel, selectedIcao, selectFlight, selectedEventId, selectEvent, selectedNewsId, selectNews, selectedConflictId, selectConflict, selectedCyberId, selectCyber } = useSelectionStore()
 
   const searchResults = useMemo(() => {
     const q = query.toLowerCase()
@@ -42,11 +48,23 @@ export function SearchResults({ query }: { query: string }) {
       .filter(e => e.title.toLowerCase().includes(q) || e.type.toLowerCase().includes(q) || e.source.toLowerCase().includes(q))
       .sort((a, b) => b.time - a.time)
 
-    return { sats: matchedSats, vessels: matchedVessels, flights: matchedFlights, events: matchedEvents }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, satVersion, toggles, getSatellites, getPositions, vessels, vesselVersion, flights, flightVersion, weatherEvents, weatherVersion])
+    const matchedNews = [...newsEvents.values()]
+      .filter(e => e.title.toLowerCase().includes(q) || e.category.toLowerCase().includes(q) || e.source.toLowerCase().includes(q))
+      .sort((a, b) => b.time - a.time)
 
-  const totalResults = searchResults.sats.length + searchResults.vessels.length + searchResults.flights.length + searchResults.events.length
+    const matchedConflicts = [...conflictEvents.values()]
+      .filter(e => e.title.toLowerCase().includes(q) || e.type.toLowerCase().includes(q) || e.actors.some(a => a.toLowerCase().includes(q)))
+      .sort((a, b) => b.time - a.time)
+
+    const matchedCyber = [...cyberEvents.values()]
+      .filter(e => e.title.toLowerCase().includes(q) || e.type.toLowerCase().includes(q) || (e.ip && e.ip.includes(q)))
+      .sort((a, b) => b.time - a.time)
+
+    return { sats: matchedSats, vessels: matchedVessels, flights: matchedFlights, events: matchedEvents, news: matchedNews, conflicts: matchedConflicts, cyber: matchedCyber }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, satVersion, toggles, getSatellites, getPositions, vessels, vesselVersion, flights, flightVersion, weatherEvents, weatherVersion, newsEvents, newsVersion, conflictEvents, conflictVersion, cyberEvents, cyberVersion])
+
+  const totalResults = searchResults.sats.length + searchResults.vessels.length + searchResults.flights.length + searchResults.events.length + searchResults.news.length + searchResults.conflicts.length + searchResults.cyber.length
 
   return (
     <div>
@@ -222,6 +240,116 @@ export function SearchResults({ query }: { query: string }) {
           {searchResults.events.length > 200 && (
             <div className="px-3.5 py-1 font-mono text-[11px] text-zinc-600">+{searchResults.events.length - 200} more...</div>
           )}
+        </div>
+      )}
+
+      {/* News results */}
+      {searchResults.news.length > 0 && (
+        <div>
+          <div className="px-3.5 py-1.5 border-b border-zinc-800/60">
+            <span className="font-display text-[11px] font-semibold tracking-[1.5px] text-rose-400/70 uppercase">News</span>
+            <span className="font-mono text-[11px] text-zinc-600 ml-2">{searchResults.news.length}</span>
+          </div>
+          {searchResults.news.slice(0, 200).map(event => {
+            const isSelected = event.id === selectedNewsId
+            const dotColor = NEWS_CATEGORY_DOT_COLORS[event.category] ?? '#a1a1aa'
+            return (
+              <button
+                key={event.id}
+                onClick={() => selectNews(isSelected ? null : event.id)}
+                className={cn(
+                  'w-full flex items-center gap-2 pl-3.5 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
+                  isSelected ? 'bg-rose-950/20 border-l-2 border-l-rose-500' : 'hover:bg-zinc-800/30',
+                )}
+              >
+                <span className="inline-block w-[5px] h-[5px] rounded-full flex-shrink-0" style={{ backgroundColor: dotColor }} />
+                <div className="flex-1 min-w-0">
+                  <div className="font-mono text-[11px] text-zinc-400 truncate">{event.title}</div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className={cn(
+                      'font-display text-[9px] font-semibold tracking-[0.5px] uppercase px-1 py-px rounded-sm border',
+                      NEWS_CATEGORY_COLORS[event.category] || NEWS_CATEGORY_COLORS.other,
+                    )}>
+                      {event.category}
+                    </span>
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Conflict results */}
+      {searchResults.conflicts.length > 0 && (
+        <div>
+          <div className="px-3.5 py-1.5 border-b border-zinc-800/60">
+            <span className="font-display text-[11px] font-semibold tracking-[1.5px] text-red-400/70 uppercase">Conflicts</span>
+            <span className="font-mono text-[11px] text-zinc-600 ml-2">{searchResults.conflicts.length}</span>
+          </div>
+          {searchResults.conflicts.slice(0, 200).map(event => {
+            const isSelected = event.id === selectedConflictId
+            const dotColor = CONFLICT_TYPE_DOT_COLORS[event.type] ?? '#f87171'
+            return (
+              <button
+                key={event.id}
+                onClick={() => selectConflict(isSelected ? null : event.id)}
+                className={cn(
+                  'w-full flex items-center gap-2 pl-3.5 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
+                  isSelected ? 'bg-red-950/20 border-l-2 border-l-red-500' : 'hover:bg-zinc-800/30',
+                )}
+              >
+                <span className="inline-block w-[5px] h-[5px] rounded-full flex-shrink-0" style={{ backgroundColor: dotColor }} />
+                <div className="flex-1 min-w-0">
+                  <div className="font-mono text-[11px] text-zinc-400 truncate">{event.title}</div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className={cn(
+                      'font-display text-[9px] font-semibold tracking-[0.5px] uppercase px-1 py-px rounded-sm border',
+                      CONFLICT_TYPE_COLORS[event.type] || CONFLICT_TYPE_COLORS.violence,
+                    )}>
+                      {event.type}
+                    </span>
+                    {event.fatalities > 0 && <span className="font-mono text-[10px] text-red-400">{event.fatalities}</span>}
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Cyber results */}
+      {searchResults.cyber.length > 0 && (
+        <div>
+          <div className="px-3.5 py-1.5 border-b border-zinc-800/60">
+            <span className="font-display text-[11px] font-semibold tracking-[1.5px] text-purple-400/70 uppercase">Cyber Threats</span>
+            <span className="font-mono text-[11px] text-zinc-600 ml-2">{searchResults.cyber.length}</span>
+          </div>
+          {searchResults.cyber.slice(0, 200).map(event => {
+            const isSelected = event.id === selectedCyberId
+            return (
+              <button
+                key={event.id}
+                onClick={() => selectCyber(isSelected ? null : event.id)}
+                className={cn(
+                  'w-full flex items-center gap-2 pl-3.5 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
+                  isSelected ? 'bg-purple-950/20 border-l-2 border-l-purple-500' : 'hover:bg-zinc-800/30',
+                )}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="font-mono text-[11px] text-zinc-400 truncate">{event.title}</div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className={cn(
+                      'font-display text-[9px] font-semibold tracking-[0.5px] uppercase px-1 py-px rounded-sm border',
+                      CYBER_TYPE_COLORS[event.type] || CYBER_TYPE_COLORS.vulnerability,
+                    )}>
+                      {event.type}
+                    </span>
+                  </div>
+                </div>
+              </button>
+            )
+          })}
         </div>
       )}
 

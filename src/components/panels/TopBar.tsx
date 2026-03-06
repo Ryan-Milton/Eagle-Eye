@@ -5,6 +5,9 @@ import { useSatelliteStore } from '@/stores/satellite-store'
 import { useVesselStore } from '@/stores/vessel-store'
 import { useFlightStore } from '@/stores/flight-store'
 import { useWeatherStore } from '@/stores/weather-store'
+import { useNewsStore } from '@/stores/news-store'
+import { useConflictStore } from '@/stores/conflict-store'
+import { useCyberStore } from '@/stores/cyber-store'
 import type { NavView } from '@/types'
 
 const NAV_VIEWS: NavView[] = ['Globe', 'Objects', 'Graph', 'Signals', 'Reports']
@@ -19,6 +22,12 @@ export function TopBar() {
   const flightConnected = useFlightStore(s => s.connected)
   const weatherCount = useWeatherStore(s => s.count)
   const weatherLastFetch = useWeatherStore(s => s.lastFetch)
+  const newsCount = useNewsStore(s => s.count)
+  const newsLastFetch = useNewsStore(s => s.lastFetch)
+  const conflictCount = useConflictStore(s => s.count)
+  const conflictLastFetch = useConflictStore(s => s.lastFetch)
+  const cyberCount = useCyberStore(s => s.count)
+  const cyberLastFetch = useCyberStore(s => s.lastFetch)
 
   const stats = getStats()
 
@@ -63,35 +72,41 @@ export function TopBar() {
 
       {/* Right side */}
       <div className="flex items-center ml-auto h-full">
-        <div className="flex items-center gap-2 px-4 h-full border-l border-zinc-800 font-mono text-[12px] text-zinc-600">
-          <Pip color="ok" /> TLE Live
+        <div className="flex items-center gap-2 px-3 h-full border-l border-zinc-800 font-mono text-[11px] text-zinc-600">
+          <Pip color="ok" /> TLE
         </div>
-        <div className="flex items-center gap-2 px-4 h-full border-l border-zinc-800 font-mono text-[12px] text-zinc-600">
-          <span className="text-zinc-400">{stats.enabledCount}</span> Sats
+        <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px] text-zinc-600">
+          <span className="text-zinc-400">{stats.enabledCount}</span> SAT
         </div>
-        <div className="flex items-center gap-2 px-4 h-full border-l border-zinc-800 font-mono text-[12px] text-zinc-600">
-          <span className="text-cyan-400">{vesselCount}</span> Vessels
+        <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px] text-zinc-600">
+          <span className="text-cyan-400">{vesselCount}</span> AIS
+          <Pip color={vesselConnected ? 'ok' : 'danger'} />
         </div>
-        <div className="flex items-center gap-2 px-4 h-full border-l border-zinc-800 font-mono text-[12px] text-zinc-600">
-          <Pip color={vesselConnected ? 'ok' : 'danger'} /> AIS
+        <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px] text-zinc-600">
+          <span className="text-yellow-400">{flightCount}</span> ADSB
+          <Pip color={flightConnected ? 'ok' : 'danger'} />
         </div>
-        <div className="flex items-center gap-2 px-4 h-full border-l border-zinc-800 font-mono text-[12px] text-zinc-600">
-          <span className="text-yellow-400">{flightCount}</span> Flights
+        <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px] text-zinc-600">
+          <span className="text-green-400">{weatherCount}</span> WX
+          <Pip color={weatherLastFetch ? 'ok' : 'danger'} />
         </div>
-        <div className="flex items-center gap-2 px-4 h-full border-l border-zinc-800 font-mono text-[12px] text-zinc-600">
-          <Pip color={flightConnected ? 'ok' : 'danger'} /> ADS-B
+        <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px] text-zinc-600">
+          <span className="text-rose-400">{newsCount}</span> NEWS
+          <Pip color={newsLastFetch ? 'ok' : 'danger'} />
         </div>
-        <div className="flex items-center gap-2 px-4 h-full border-l border-zinc-800 font-mono text-[12px] text-zinc-600">
-          <span className="text-green-400">{weatherCount}</span> Events
+        <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px] text-zinc-600">
+          <span className="text-red-400">{conflictCount}</span> CON
+          <Pip color={conflictLastFetch ? 'ok' : 'danger'} />
         </div>
-        <div className="flex items-center gap-2 px-4 h-full border-l border-zinc-800 font-mono text-[12px] text-zinc-600">
-          <Pip color={weatherLastFetch ? 'ok' : 'danger'} /> WX
+        <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px] text-zinc-600">
+          <span className="text-purple-400">{cyberCount}</span> CYB
+          <Pip color={cyberLastFetch ? 'ok' : 'danger'} />
         </div>
-        <div className="flex items-center gap-2 px-4 h-full border-l border-zinc-800 font-mono text-[12px] text-zinc-600">
+        <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px] text-zinc-600">
           {dataAge !== null ? (
-            <><Pip color={dataAge < 30 ? 'ok' : 'warn'} /> {dataAge < 1 ? '<1m' : `${dataAge}m`} ago</>
+            <><Pip color={dataAge < 30 ? 'ok' : 'warn'} /> {dataAge < 1 ? '<1m' : `${dataAge}m`}</>
           ) : (
-            <><Pip color="danger" /> No data</>
+            <><Pip color="danger" /> —</>
           )}
         </div>
         <div className="flex flex-col justify-center items-end px-4 h-full border-l border-zinc-800 min-w-[104px]">

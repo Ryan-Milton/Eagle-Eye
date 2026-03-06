@@ -405,6 +405,173 @@ async function handleWeatherConditions(url: URL): Promise<Response> {
   }
 }
 
+// ─── NEWS (GDELT) PROXY ────────────────────────────────────────────────────
+
+import { parseGdeltGeo } from '../src/lib/news-client'
+
+interface NewsCacheEntry { events: unknown[]; errors: string[]; fetchedAt: number }
+let newsCache: NewsCacheEntry | null = null
+const NEWS_CACHE_TTL = 300_000 // 5 min
+
+async function fetchNewsEvents(): Promise<{ events: unknown[]; errors: string[] }> {
+  if (newsCache && Date.now() - newsCache.fetchedAt < NEWS_CACHE_TTL) {
+    return { events: newsCache.events, errors: newsCache.errors }
+  }
+
+  const errors: string[] = []
+  let events: unknown[] = []
+
+  try {
+    const res = await fetch(
+      'https://api.gdeltproject.org/api/v2/geo/geo?query=*&format=geojson&timespan=24h',
+      { signal: AbortSignal.timeout(15_000) },
+    )
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const json = await res.json()
+    events = parseGdeltGeo(json)
+    console.log(`[News] GDELT: ${events.length} geo events`)
+  } catch (err) {
+    errors.push(`GDELT: ${(err as Error).message}`)
+    console.warn(`[News] GDELT failed: ${(err as Error).message}`)
+  }
+
+  newsCache = { events, errors, fetchedAt: Date.now() }
+  return { events, errors }
+}
+
+async function handleNewsEvents(): Promise<Response> {
+  try {
+    const { events, errors } = await fetchNewsEvents()
+    return Response.json({ events, errors }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  } catch (err) {
+    console.error('[News] Fetch error:', err)
+    return Response.json({ events: [], errors: ['GDELT failed'] }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+}
+
+// ─── CONFLICT PROXY ────────────────────────────────────────────────────────
+
+import { parseACLEDEvents, parseUCDPEvents } from '../src/lib/conflict-client'
+
+interface ConflictCacheEntry { events: unknown[]; errors: string[]; fetchedAt: number }
+let conflictCache: ConflictCacheEntry | null = null
+const CONFLICT_CACHE_TTL = 1_800_000 // 30 min
+
+async function fetchConflictEvents(): Promise<{ events: unknown[]; errors: string[] }> {
+  if (conflictCache && Date.now() - conflictCache.fetchedAt < CONFLICT_CACHE_TTL) {
+    return { events: conflictCache.events, errors: conflictCache.errors }
+  }
+
+  const results = await Promise.allSettled([
+    fetch('https://api.acleddata.com/acled/read?terms=accept&limit=500', { signal: AbortSignal.timeout(15_000) })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+      .then(json => parseACLEDEvents(json)),
+    fetch('https://ucdpapi.pcr.uu.se/api/gedevents/24.1?pagesize=100', { signal: AbortSignal.timeout(15_000) })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+      .then(json => parseUCDPEvents(json)),
+  ])
+
+  const events: unknown[] = []
+  const errors: string[] = []
+  const sourceNames = ['ACLED', 'UCDP']
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]
+    if (result.status === 'fulfilled') events.push(...result.value)
+    else {
+      errors.push(`${sourceNames[i]}: ${result.reason?.message ?? 'Unknown error'}`)
+      console.warn(`[Conflict] ${sourceNames[i]} failed: ${result.reason?.message}`)
+    }
+  }
+
+  conflictCache = { events, errors, fetchedAt: Date.now() }
+  console.log(`[Conflict] ${events.length} events, ${errors.length} source errors`)
+  return { events, errors }
+}
+
+async function handleConflictEvents(): Promise<Response> {
+  try {
+    const { events, errors } = await fetchConflictEvents()
+    return Response.json({ events, errors }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  } catch (err) {
+    console.error('[Conflict] Fetch error:', err)
+    return Response.json({ events: [], errors: ['All sources failed'] }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+}
+
+// ─── CYBER THREAT PROXY ───────────────────────────────────────────────────
+
+import { parseAbuseIPDB } from '../src/lib/cyber-client'
+
+interface CyberCacheEntry { events: unknown[]; errors: string[]; fetchedAt: number }
+let cyberCache: CyberCacheEntry | null = null
+const CYBER_CACHE_TTL = 1_800_000 // 30 min
+
+const ABUSEIPDB_KEY = process.env.ABUSEIPDB_KEY ?? ''
+
+async function fetchCyberEvents(): Promise<{ events: unknown[]; errors: string[] }> {
+  if (cyberCache && Date.now() - cyberCache.fetchedAt < CYBER_CACHE_TTL) {
+    return { events: cyberCache.events, errors: cyberCache.errors }
+  }
+
+  const events: unknown[] = []
+  const errors: string[] = []
+
+  // AbuseIPDB
+  if (ABUSEIPDB_KEY) {
+    try {
+      const res = await fetch('https://api.abuseipdb.com/api/v2/blacklist?confidenceMinimum=90&limit=100', {
+        headers: { Key: ABUSEIPDB_KEY, Accept: 'application/json' },
+        signal: AbortSignal.timeout(15_000),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const json = await res.json()
+      events.push(...parseAbuseIPDB(json))
+    } catch (err) {
+      errors.push(`AbuseIPDB: ${(err as Error).message}`)
+    }
+  } else {
+    errors.push('AbuseIPDB: No API key configured')
+  }
+
+  // IODA - internet outages
+  try {
+    const res = await fetch('https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw/country?from=-1h', {
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    // IODA results require country→lat/lon mapping; for now just note it
+    console.log('[Cyber] IODA check completed')
+  } catch (err) {
+    errors.push(`IODA: ${(err as Error).message}`)
+  }
+
+  cyberCache = { events, errors, fetchedAt: Date.now() }
+  console.log(`[Cyber] ${events.length} events, ${errors.length} source errors`)
+  return { events, errors }
+}
+
+async function handleCyberEvents(): Promise<Response> {
+  try {
+    const { events, errors } = await fetchCyberEvents()
+    return Response.json({ events, errors }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  } catch (err) {
+    console.error('[Cyber] Fetch error:', err)
+    return Response.json({ events: [], errors: ['All sources failed'] }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+}
+
 // ─── HEXDB PROXY ────────────────────────────────────────────────────────────
 
 const HEXDB = 'https://hexdb.io'
@@ -499,6 +666,9 @@ Bun.serve<{ path: string }>({
     // HTTP API routes
     if (url.pathname === '/api/weather/events') return handleWeatherEvents()
     if (url.pathname === '/api/weather/conditions') return handleWeatherConditions(url)
+    if (url.pathname === '/api/news/events') return handleNewsEvents()
+    if (url.pathname === '/api/conflicts/events') return handleConflictEvents()
+    if (url.pathname === '/api/cyber/events') return handleCyberEvents()
     if (url.pathname === '/api/hexdb/lookup') return handleHexdbLookup(url)
     if (url.pathname === '/api/hexdb/image') return handleHexdbImage(url)
 
@@ -548,7 +718,8 @@ Bun.serve<{ path: string }>({
 
 console.log(`[Eagle Eye] Backend listening on :${PORT}`)
 console.log(`  WebSocket: /ws/ais, /ws/flights`)
-console.log(`  HTTP API:  /api/weather/events, /api/weather/conditions, /api/hexdb/lookup, /api/hexdb/image`)
+console.log(`  HTTP API:  /api/weather/events, /api/weather/conditions, /api/news/events, /api/conflicts/events, /api/cyber/events`)
+console.log(`             /api/hexdb/lookup, /api/hexdb/image`)
 console.log(`  Health:    /health`)
 if (AIS_API_KEY) console.log('[AIS] API key configured')
 else console.warn('[AIS] Missing AIS_API_KEY — AIS proxy disabled')

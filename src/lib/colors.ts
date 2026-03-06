@@ -44,3 +44,53 @@ export const WEATHER_TYPE_DOT_COLORS: Record<string, string> = {
   storm: '#c084fc', flood: '#60a5fa', iceberg: '#38bdf8',
   drought: '#facc15', alert: '#fb7185',
 }
+
+// ─── News ──────────────────────────────────────────────────────────────────
+
+export const NEWS_CATEGORY_COLORS: Record<string, string> = {
+  conflict: 'text-red-400 border-red-800/60 bg-red-950/40',
+  politics: 'text-blue-400 border-blue-800/60 bg-blue-950/40',
+  disaster: 'text-orange-400 border-orange-800/60 bg-orange-950/40',
+  economy: 'text-emerald-400 border-emerald-800/60 bg-emerald-950/40',
+  technology: 'text-cyan-400 border-cyan-800/60 bg-cyan-950/40',
+  health: 'text-pink-400 border-pink-800/60 bg-pink-950/40',
+  environment: 'text-green-400 border-green-800/60 bg-green-950/40',
+  other: 'text-zinc-400 border-zinc-700/60 bg-zinc-800/40',
+}
+
+export const NEWS_CATEGORY_DOT_COLORS: Record<string, string> = {
+  conflict: '#f87171', politics: '#60a5fa', disaster: '#fb923c',
+  economy: '#34d399', technology: '#22d3ee', health: '#f472b6',
+  environment: '#4ade80', other: '#a1a1aa',
+}
+
+// ─── Conflicts ─────────────────────────────────────────────────────────────
+
+export const CONFLICT_TYPE_COLORS: Record<string, string> = {
+  battle: 'text-red-400 border-red-800/60 bg-red-950/40',
+  protest: 'text-yellow-400 border-yellow-800/60 bg-yellow-950/40',
+  riot: 'text-orange-400 border-orange-800/60 bg-orange-950/40',
+  explosion: 'text-rose-400 border-rose-800/60 bg-rose-950/40',
+  violence: 'text-pink-400 border-pink-800/60 bg-pink-950/40',
+  strategic: 'text-purple-400 border-purple-800/60 bg-purple-950/40',
+}
+
+export const CONFLICT_TYPE_DOT_COLORS: Record<string, string> = {
+  battle: '#f87171', protest: '#facc15', riot: '#fb923c',
+  explosion: '#fb7185', violence: '#f472b6', strategic: '#c084fc',
+}
+
+// ─── Cyber ─────────────────────────────────────────────────────────────────
+
+export const CYBER_TYPE_COLORS: Record<string, string> = {
+  ddos: 'text-red-400 border-red-800/60 bg-red-950/40',
+  scan: 'text-yellow-400 border-yellow-800/60 bg-yellow-950/40',
+  malware: 'text-rose-400 border-rose-800/60 bg-rose-950/40',
+  outage: 'text-orange-400 border-orange-800/60 bg-orange-950/40',
+  vulnerability: 'text-purple-400 border-purple-800/60 bg-purple-950/40',
+}
+
+export const CYBER_TYPE_DOT_COLORS: Record<string, string> = {
+  ddos: '#f87171', scan: '#facc15', malware: '#fb7185',
+  outage: '#fb923c', vulnerability: '#c084fc',
+}

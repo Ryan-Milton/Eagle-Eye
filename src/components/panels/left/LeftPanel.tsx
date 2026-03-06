@@ -4,9 +4,12 @@ import { SatelliteSection } from './SatelliteSection'
 import { MaritimeSection } from './MaritimeSection'
 import { AircraftSection } from './AircraftSection'
 import { WeatherSection } from './WeatherSection'
+import { NewsSection } from './NewsSection'
+import { ConflictSection } from './ConflictSection'
+import { CyberSection } from './CyberSection'
 import { SearchResults } from './SearchResults'
 
-type SectionId = 'satellites' | 'maritime' | 'aircraft' | 'weather'
+type SectionId = 'satellites' | 'maritime' | 'aircraft' | 'weather' | 'news' | 'conflicts' | 'cyber'
 
 export function LeftPanel() {
   const [expandedSections, setExpandedSections] = useState<Set<SectionId>>(new Set())
@@ -39,6 +42,9 @@ export function LeftPanel() {
             <MaritimeSection expanded={expandedSections.has('maritime')} onToggle={() => toggleSection('maritime')} />
             <AircraftSection expanded={expandedSections.has('aircraft')} onToggle={() => toggleSection('aircraft')} />
             <WeatherSection expanded={expandedSections.has('weather')} onToggle={() => toggleSection('weather')} />
+            <NewsSection expanded={expandedSections.has('news')} onToggle={() => toggleSection('news')} />
+            <ConflictSection expanded={expandedSections.has('conflicts')} onToggle={() => toggleSection('conflicts')} />
+            <CyberSection expanded={expandedSections.has('cyber')} onToggle={() => toggleSection('cyber')} />
           </>
         )}
       </div>

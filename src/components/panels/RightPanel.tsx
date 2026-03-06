@@ -1,15 +1,18 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { CONSTELLATIONS } from '@/data/constellations'
 import { cn } from '@/lib/utils'
-import { VESSEL_TYPE_COLORS, FLIGHT_TYPE_COLORS, WEATHER_TYPE_COLORS } from '@/lib/colors'
+import { VESSEL_TYPE_COLORS, FLIGHT_TYPE_COLORS, WEATHER_TYPE_COLORS, NEWS_CATEGORY_COLORS, CONFLICT_TYPE_COLORS, CYBER_TYPE_COLORS } from '@/lib/colors'
 import { useSatelliteStore } from '@/stores/satellite-store'
 import { useVesselStore } from '@/stores/vessel-store'
 import { useFlightStore } from '@/stores/flight-store'
 import { useWeatherStore } from '@/stores/weather-store'
+import { useNewsStore } from '@/stores/news-store'
+import { useConflictStore } from '@/stores/conflict-store'
+import { useCyberStore } from '@/stores/cyber-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { useFlightInfo } from '@/hooks/useFlightInfo'
 import type { HexdbFlightInfo } from '@/lib/hexdb'
-import type { SatelliteRecord, SatellitePosition, VesselRecord, FlightRecord, ConstellationMeta, WeatherEvent } from '@/types'
+import type { SatelliteRecord, SatellitePosition, VesselRecord, FlightRecord, ConstellationMeta, WeatherEvent, NewsEvent, ConflictEvent, CyberEvent } from '@/types'
 
 const NAV_STATUS_LABELS: Record<number, string> = {
   0: 'Under way using engine',
@@ -25,19 +28,28 @@ const NAV_STATUS_LABELS: Record<number, string> = {
 }
 
 export function RightPanel() {
-  const { selectedSatId, selectedMmsi, selectedIcao, selectedEventId } = useSelectionStore()
+  const { selectedSatId, selectedMmsi, selectedIcao, selectedEventId, selectedNewsId, selectedConflictId, selectedCyberId } = useSelectionStore()
   const { getSatellites, getPositions, toggles, version: satVersion } = useSatelliteStore()
   const { vessels, version: vesselVersion } = useVesselStore()
   const { flights, version: flightVersion } = useFlightStore()
   const { events, version: weatherVersion } = useWeatherStore()
+  const { events: newsEvents, version: newsVersion } = useNewsStore()
+  const { events: conflictEvents, version: conflictVersion } = useConflictStore()
+  const { events: cyberEvents, version: cyberVersion } = useCyberStore()
 
   // Derive selected records
-  void vesselVersion // trigger re-render
+  void vesselVersion
   void flightVersion
   void weatherVersion
+  void newsVersion
+  void conflictVersion
+  void cyberVersion
   const selectedVessel = selectedMmsi ? vessels.get(selectedMmsi) ?? null : null
   const selectedFlight = selectedIcao ? flights.get(selectedIcao) ?? null : null
   const selectedEvent = selectedEventId ? events.get(selectedEventId) ?? null : null
+  const selectedNews = selectedNewsId ? newsEvents.get(selectedNewsId) ?? null : null
+  const selectedConflict = selectedConflictId ? conflictEvents.get(selectedConflictId) ?? null : null
+  const selectedCyber = selectedCyberId ? cyberEvents.get(selectedCyberId) ?? null : null
 
   const { satellite: selectedSatellite, position: selectedPosition } = useMemo(() => {
     if (!selectedSatId) return { satellite: null, position: null }
@@ -69,29 +81,179 @@ export function RightPanel() {
   }, [selectedSatellite])
   const epochAge = epochAgeRef.current
 
+  // Determine panel title
+  let panelTitle = 'Entity Detail'
+  if (selectedCyber) panelTitle = 'Cyber Threat'
+  else if (selectedConflict) panelTitle = 'Conflict Event'
+  else if (selectedNews) panelTitle = 'News Event'
+  else if (selectedEvent) panelTitle = 'Weather Event'
+  else if (selectedFlight) panelTitle = 'Flight Detail'
+  else if (selectedVessel) panelTitle = 'Vessel Detail'
+  else if (selectedSatellite) panelTitle = 'Satellite Detail'
+
+  const hasSelection = selectedSatellite || selectedVessel || selectedFlight || selectedEvent || selectedNews || selectedConflict || selectedCyber
+
   return (
     <aside className="fixed top-[46px] right-0 bottom-[34px] w-[272px] bg-zinc-900 border-l border-zinc-800 z-40 flex flex-col overflow-hidden">
 
       <div className="flex items-center justify-between px-3.5 h-9 border-b border-zinc-800 flex-shrink-0">
         <span className="font-display text-[12px] font-semibold tracking-[2.5px] text-zinc-600 uppercase">
-          {selectedEvent ? 'Event Detail' : selectedFlight ? 'Flight Detail' : selectedVessel ? 'Vessel Detail' : 'Satellite Detail'}
+          {panelTitle}
         </span>
       </div>
 
-      {selectedEvent ? (
+      {selectedCyber ? (
+        <CyberDetail event={selectedCyber} />
+      ) : selectedConflict ? (
+        <ConflictDetail event={selectedConflict} />
+      ) : selectedNews ? (
+        <NewsDetail event={selectedNews} />
+      ) : selectedEvent ? (
         <WeatherEventDetail event={selectedEvent} />
       ) : selectedFlight ? (
         <FlightDetail flight={selectedFlight} flightInfo={flightInfo} flightInfoLoading={flightInfoLoading} />
       ) : selectedVessel ? (
         <VesselDetail vessel={selectedVessel} />
-      ) : !selectedSatellite ? (
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-[13px] text-zinc-600">Select a satellite, vessel, or flight to view details</p>
-        </div>
-      ) : (
+      ) : selectedSatellite ? (
         <SatelliteDetail satellite={selectedSatellite} position={selectedPosition} constellation={constellation} colorHex={colorHex} epochAge={epochAge} />
+      ) : (
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-[13px] text-zinc-600">Select an entity to view details</p>
+        </div>
       )}
     </aside>
+  )
+}
+
+function NewsDetail({ event }: { event: NewsEvent }) {
+  return (
+    <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
+      <div className="px-3.5 py-3 border-b border-zinc-800">
+        <div className="font-display text-sm font-bold tracking-wide text-zinc-50">{event.title}</div>
+        <div className="flex items-center gap-2 mt-1.5">
+          <span className="font-mono text-[12px] text-zinc-500">{event.source}</span>
+          <span className={cn(
+            'font-display text-[13px] font-semibold tracking-[1px] uppercase px-1.5 py-0.5 rounded-sm border',
+            NEWS_CATEGORY_COLORS[event.category] || NEWS_CATEGORY_COLORS.other,
+          )}>{event.category}</span>
+        </div>
+      </div>
+
+      <div className="px-3.5 py-3 border-b border-zinc-800">
+        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Position</div>
+        <div className="grid grid-cols-2 gap-2">
+          <DetailRow label="Latitude" value={`${Math.abs(event.lat).toFixed(4)}°${event.lat >= 0 ? 'N' : 'S'}`} />
+          <DetailRow label="Longitude" value={`${Math.abs(event.lon).toFixed(4)}°${event.lon >= 0 ? 'E' : 'W'}`} />
+        </div>
+      </div>
+
+      <div className="px-3.5 py-3 border-b border-zinc-800">
+        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Analysis</div>
+        <div className="grid grid-cols-2 gap-2">
+          <DetailRow label="Tone" value={event.tone.toFixed(1)} warn={event.tone < -5} />
+          <DetailRow label="Articles" value={String(event.articleCount)} />
+          <DetailRow label="Time" value={new Date(event.time).toISOString().slice(0, 16).replace('T', ' ') + 'Z'} />
+        </div>
+      </div>
+
+      {event.url && (
+        <div className="px-3.5 py-3 border-b border-zinc-800">
+          <a href={event.url} target="_blank" rel="noopener noreferrer" className="font-mono text-[11px] text-orange-400 hover:underline break-all">
+            View source article
+          </a>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ConflictDetail({ event }: { event: ConflictEvent }) {
+  return (
+    <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
+      <div className="px-3.5 py-3 border-b border-zinc-800">
+        <div className="font-display text-sm font-bold tracking-wide text-zinc-50">{event.title}</div>
+        <div className="flex items-center gap-2 mt-1.5">
+          <span className="font-mono text-[12px] text-zinc-500">{event.source.toUpperCase()}</span>
+          <span className={cn(
+            'font-display text-[13px] font-semibold tracking-[1px] uppercase px-1.5 py-0.5 rounded-sm border',
+            CONFLICT_TYPE_COLORS[event.type] || CONFLICT_TYPE_COLORS.violence,
+          )}>{event.type}</span>
+        </div>
+      </div>
+
+      <div className="px-3.5 py-3 border-b border-zinc-800">
+        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Position</div>
+        <div className="grid grid-cols-2 gap-2">
+          <DetailRow label="Latitude" value={`${Math.abs(event.lat).toFixed(4)}°${event.lat >= 0 ? 'N' : 'S'}`} />
+          <DetailRow label="Longitude" value={`${Math.abs(event.lon).toFixed(4)}°${event.lon >= 0 ? 'E' : 'W'}`} />
+        </div>
+      </div>
+
+      <div className="px-3.5 py-3 border-b border-zinc-800">
+        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Details</div>
+        <div className="grid grid-cols-2 gap-2">
+          <DetailRow label="Fatalities" value={String(event.fatalities)} warn={event.fatalities > 0} />
+          <DetailRow label="Event Time" value={new Date(event.time).toISOString().slice(0, 16).replace('T', ' ') + 'Z'} />
+        </div>
+      </div>
+
+      {event.actors.length > 0 && (
+        <div className="px-3.5 py-3 border-b border-zinc-800">
+          <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Actors</div>
+          {event.actors.map((actor, i) => (
+            <div key={i} className="font-mono text-[12px] text-zinc-400 mt-1">{actor}</div>
+          ))}
+        </div>
+      )}
+
+      {event.description && (
+        <div className="px-3.5 py-3 border-b border-zinc-800">
+          <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Description</div>
+          <p className="font-mono text-[11px] text-zinc-400 leading-relaxed whitespace-pre-wrap">{event.description.slice(0, 500)}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CyberDetail({ event }: { event: CyberEvent }) {
+  return (
+    <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
+      <div className="px-3.5 py-3 border-b border-zinc-800">
+        <div className="font-display text-sm font-bold tracking-wide text-zinc-50">{event.title}</div>
+        <div className="flex items-center gap-2 mt-1.5">
+          <span className="font-mono text-[12px] text-zinc-500">{event.source.toUpperCase()}</span>
+          <span className={cn(
+            'font-display text-[13px] font-semibold tracking-[1px] uppercase px-1.5 py-0.5 rounded-sm border',
+            CYBER_TYPE_COLORS[event.type] || CYBER_TYPE_COLORS.vulnerability,
+          )}>{event.type}</span>
+        </div>
+      </div>
+
+      <div className="px-3.5 py-3 border-b border-zinc-800">
+        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Position</div>
+        <div className="grid grid-cols-2 gap-2">
+          <DetailRow label="Latitude" value={`${Math.abs(event.lat).toFixed(4)}°${event.lat >= 0 ? 'N' : 'S'}`} />
+          <DetailRow label="Longitude" value={`${Math.abs(event.lon).toFixed(4)}°${event.lon >= 0 ? 'E' : 'W'}`} />
+        </div>
+      </div>
+
+      <div className="px-3.5 py-3 border-b border-zinc-800">
+        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Threat Details</div>
+        <div className="grid grid-cols-2 gap-2">
+          <DetailRow label="Severity" value={`${event.severity}/10`} warn={event.severity >= 7} />
+          {event.ip && <DetailRow label="IP Address" value={event.ip} />}
+          <DetailRow label="Event Time" value={new Date(event.time).toISOString().slice(0, 16).replace('T', ' ') + 'Z'} />
+        </div>
+      </div>
+
+      {event.description && (
+        <div className="px-3.5 py-3 border-b border-zinc-800">
+          <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Description</div>
+          <p className="font-mono text-[11px] text-zinc-400 leading-relaxed whitespace-pre-wrap">{event.description.slice(0, 500)}</p>
+        </div>
+      )}
+    </div>
   )
 }
 

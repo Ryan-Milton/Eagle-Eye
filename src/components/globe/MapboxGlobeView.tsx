@@ -8,12 +8,15 @@ import { useSatelliteStore } from '@/stores/satellite-store'
 import { useVesselStore } from '@/stores/vessel-store'
 import { useFlightStore } from '@/stores/flight-store'
 import { useWeatherStore } from '@/stores/weather-store'
+import { useNewsStore } from '@/stores/news-store'
+import { useConflictStore } from '@/stores/conflict-store'
+import { useCyberStore } from '@/stores/cyber-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { useAppStore } from '@/stores/app-store'
-import { WEATHER_TYPE_DOT_COLORS } from '@/lib/colors'
+import { WEATHER_TYPE_DOT_COLORS, NEWS_CATEGORY_DOT_COLORS, CONFLICT_TYPE_DOT_COLORS, CYBER_TYPE_DOT_COLORS } from '@/lib/colors'
 import { CoordinateHUD } from './CoordinateHUD'
 import { MeasurementTool } from './MeasurementTool'
-import type { ConstellationId, SatellitePosition, VesselRecord, FlightRecord, VesselType, FlightType, WeatherEvent, WeatherEventType } from '@/types'
+import type { ConstellationId, SatellitePosition, VesselRecord, FlightRecord, VesselType, FlightType, WeatherEvent, WeatherEventType, NewsEvent, NewsCategory, ConflictEvent, ConflictEventType, CyberEvent, CyberEventType } from '@/types'
 import type { PositionHistory } from '@/lib/position-history'
 
 type MapStyle = 'dark' | 'light'
@@ -199,6 +202,81 @@ function buildTrailGeoJSON(
     })
   }
 
+  return { type: 'FeatureCollection', features }
+}
+
+function buildNewsGeoJSON(
+  events: Map<string, NewsEvent>,
+  selectedNewsId: string | null,
+  categoryToggles: Map<NewsCategory, boolean>,
+  timelineCursor?: number,
+): GeoJSONFeatureCollection {
+  const features: GeoJSON.Feature<GeoJSON.Point>[] = []
+  for (const [id, e] of events) {
+    if (categoryToggles.get(e.category) === false) continue
+    if (timelineCursor && e.lastUpdate > timelineCursor) continue
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [e.lon, e.lat] },
+      properties: {
+        newsId: id,
+        color: NEWS_CATEGORY_DOT_COLORS[e.category] ?? '#a1a1aa',
+        selected: id === selectedNewsId,
+        tone: e.tone,
+        category: e.category,
+      },
+    })
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+function buildConflictGeoJSON(
+  events: Map<string, ConflictEvent>,
+  selectedConflictId: string | null,
+  typeToggles: Map<ConflictEventType, boolean>,
+  timelineCursor?: number,
+): GeoJSONFeatureCollection {
+  const features: GeoJSON.Feature<GeoJSON.Point>[] = []
+  for (const [id, e] of events) {
+    if (typeToggles.get(e.type) === false) continue
+    if (timelineCursor && e.lastUpdate > timelineCursor) continue
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [e.lon, e.lat] },
+      properties: {
+        conflictId: id,
+        color: CONFLICT_TYPE_DOT_COLORS[e.type] ?? '#f87171',
+        selected: id === selectedConflictId,
+        fatalities: e.fatalities,
+        type: e.type,
+      },
+    })
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+function buildCyberGeoJSON(
+  events: Map<string, CyberEvent>,
+  selectedCyberId: string | null,
+  typeToggles: Map<CyberEventType, boolean>,
+  timelineCursor?: number,
+): GeoJSONFeatureCollection {
+  const features: GeoJSON.Feature<GeoJSON.Point>[] = []
+  for (const [id, e] of events) {
+    if (typeToggles.get(e.type) === false) continue
+    if (timelineCursor && e.lastUpdate > timelineCursor) continue
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [e.lon, e.lat] },
+      properties: {
+        cyberId: id,
+        color: CYBER_TYPE_DOT_COLORS[e.type] ?? '#c084fc',
+        selected: id === selectedCyberId,
+        severity: e.severity,
+        type: e.type,
+      },
+    })
+  }
   return { type: 'FeatureCollection', features }
 }
 
@@ -427,10 +505,156 @@ function addEntityLayers(map: mapboxgl.Map) {
       'circle-stroke-color': ['get', 'color'],
     },
   })
+
+  // --- News events with clustering ---
+  map.addSource('news-events', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+    cluster: true,
+    clusterMaxZoom: 14,
+    clusterRadius: 50,
+  })
+  map.addLayer({
+    id: 'news-events-cluster',
+    type: 'circle',
+    source: 'news-events',
+    filter: ['has', 'point_count'],
+    paint: {
+      'circle-color': '#fb7185',
+      'circle-opacity': 0.5,
+      'circle-radius': ['step', ['get', 'point_count'], 12, 50, 16, 200, 20],
+    },
+  })
+  map.addLayer({
+    id: 'news-events-cluster-count',
+    type: 'symbol',
+    source: 'news-events',
+    filter: ['has', 'point_count'],
+    layout: {
+      'text-field': '{point_count_abbreviated}',
+      'text-font': ['DIN Pro Medium', 'Arial Unicode MS Bold'],
+      'text-size': 10,
+      'text-allow-overlap': true,
+    },
+    paint: { 'text-color': '#ffffff' },
+  })
+  map.addLayer({
+    id: 'news-events-layer',
+    type: 'circle',
+    source: 'news-events',
+    filter: ['!', ['has', 'point_count']],
+    paint: {
+      'circle-radius': ['case', ['get', 'selected'], 7, 4],
+      'circle-color': ['get', 'color'],
+      'circle-opacity': ['case', ['get', 'selected'], 1, 0.6],
+      'circle-stroke-width': ['case', ['get', 'selected'], 2, 0],
+      'circle-stroke-color': ['get', 'color'],
+    },
+  })
+
+  // --- Conflict events with clustering ---
+  map.addSource('conflict-events', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+    cluster: true,
+    clusterMaxZoom: 14,
+    clusterRadius: 50,
+  })
+  map.addLayer({
+    id: 'conflict-events-cluster',
+    type: 'circle',
+    source: 'conflict-events',
+    filter: ['has', 'point_count'],
+    paint: {
+      'circle-color': '#f87171',
+      'circle-opacity': 0.6,
+      'circle-radius': ['step', ['get', 'point_count'], 14, 50, 18, 200, 22],
+    },
+  })
+  map.addLayer({
+    id: 'conflict-events-cluster-count',
+    type: 'symbol',
+    source: 'conflict-events',
+    filter: ['has', 'point_count'],
+    layout: {
+      'text-field': '{point_count_abbreviated}',
+      'text-font': ['DIN Pro Medium', 'Arial Unicode MS Bold'],
+      'text-size': 11,
+      'text-allow-overlap': true,
+    },
+    paint: { 'text-color': '#ffffff' },
+  })
+  map.addLayer({
+    id: 'conflict-events-layer',
+    type: 'circle',
+    source: 'conflict-events',
+    filter: ['!', ['has', 'point_count']],
+    paint: {
+      'circle-radius': [
+        'case',
+        ['get', 'selected'], 8,
+        ['interpolate', ['linear'], ['coalesce', ['get', 'fatalities'], 0], 0, 4, 10, 7, 100, 12],
+      ],
+      'circle-color': ['get', 'color'],
+      'circle-opacity': ['case', ['get', 'selected'], 1, 0.7],
+      'circle-stroke-width': ['case', ['get', 'selected'], 2, 0],
+      'circle-stroke-color': ['get', 'color'],
+    },
+  })
+
+  // --- Cyber events with clustering ---
+  map.addSource('cyber-events', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+    cluster: true,
+    clusterMaxZoom: 14,
+    clusterRadius: 50,
+  })
+  map.addLayer({
+    id: 'cyber-events-cluster',
+    type: 'circle',
+    source: 'cyber-events',
+    filter: ['has', 'point_count'],
+    paint: {
+      'circle-color': '#c084fc',
+      'circle-opacity': 0.5,
+      'circle-radius': ['step', ['get', 'point_count'], 12, 50, 16, 200, 20],
+    },
+  })
+  map.addLayer({
+    id: 'cyber-events-cluster-count',
+    type: 'symbol',
+    source: 'cyber-events',
+    filter: ['has', 'point_count'],
+    layout: {
+      'text-field': '{point_count_abbreviated}',
+      'text-font': ['DIN Pro Medium', 'Arial Unicode MS Bold'],
+      'text-size': 10,
+      'text-allow-overlap': true,
+    },
+    paint: { 'text-color': '#ffffff' },
+  })
+  map.addLayer({
+    id: 'cyber-events-layer',
+    type: 'circle',
+    source: 'cyber-events',
+    filter: ['!', ['has', 'point_count']],
+    paint: {
+      'circle-radius': [
+        'case',
+        ['get', 'selected'], 7,
+        ['interpolate', ['linear'], ['coalesce', ['get', 'severity'], 1], 1, 3, 5, 6, 10, 10],
+      ],
+      'circle-color': ['get', 'color'],
+      'circle-opacity': ['case', ['get', 'selected'], 1, 0.6],
+      'circle-stroke-width': ['case', ['get', 'selected'], 2, 0],
+      'circle-stroke-color': ['get', 'color'],
+    },
+  })
 }
 
-const ENTITY_LAYERS = ['satellites-layer', 'vessels-layer', 'flights-layer', 'weather-events-layer'] as const
-const CLUSTER_LAYERS = ['vessels-cluster', 'flights-cluster', 'weather-events-cluster'] as const
+const ENTITY_LAYERS = ['satellites-layer', 'vessels-layer', 'flights-layer', 'weather-events-layer', 'news-events-layer', 'conflict-events-layer', 'cyber-events-layer'] as const
+const CLUSTER_LAYERS = ['vessels-cluster', 'flights-cluster', 'weather-events-cluster', 'news-events-cluster', 'conflict-events-cluster', 'cyber-events-cluster'] as const
 
 export function MapboxGlobeView() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -455,9 +679,21 @@ export function MapboxGlobeView() {
   const weatherEvents = useWeatherStore(s => s.events)
   const weatherVersion = useWeatherStore(s => s.version)
   const weatherTypeToggles = useWeatherStore(s => s.typeToggles)
+  const newsEvents = useNewsStore(s => s.events)
+  const newsVersion = useNewsStore(s => s.version)
+  const newsCategoryToggles = useNewsStore(s => s.categoryToggles)
+  const conflictEvents = useConflictStore(s => s.events)
+  const conflictVersion = useConflictStore(s => s.version)
+  const conflictTypeToggles = useConflictStore(s => s.typeToggles)
+  const cyberEvents = useCyberStore(s => s.events)
+  const cyberVersion = useCyberStore(s => s.version)
+  const cyberTypeToggles = useCyberStore(s => s.typeToggles)
   const selectedMmsi = useSelectionStore(s => s.selectedMmsi)
   const selectedIcao = useSelectionStore(s => s.selectedIcao)
   const selectedEventId = useSelectionStore(s => s.selectedEventId)
+  const selectedNewsId = useSelectionStore(s => s.selectedNewsId)
+  const selectedConflictId = useSelectionStore(s => s.selectedConflictId)
+  const selectedCyberId = useSelectionStore(s => s.selectedCyberId)
   const timelineCursor = useAppStore(s => s.timelineCursor)
   const timelineLive = useAppStore(s => s.timelineLive)
 
@@ -504,6 +740,24 @@ export function MapboxGlobeView() {
       if (e.features?.[0]?.properties?.eventId) {
         e.originalEvent.stopPropagation()
         useSelectionStore.getState().selectEvent(e.features[0].properties.eventId)
+      }
+    })
+    map.on('click', 'news-events-layer', (e) => {
+      if (e.features?.[0]?.properties?.newsId) {
+        e.originalEvent.stopPropagation()
+        useSelectionStore.getState().selectNews(e.features[0].properties.newsId)
+      }
+    })
+    map.on('click', 'conflict-events-layer', (e) => {
+      if (e.features?.[0]?.properties?.conflictId) {
+        e.originalEvent.stopPropagation()
+        useSelectionStore.getState().selectConflict(e.features[0].properties.conflictId)
+      }
+    })
+    map.on('click', 'cyber-events-layer', (e) => {
+      if (e.features?.[0]?.properties?.cyberId) {
+        e.originalEvent.stopPropagation()
+        useSelectionStore.getState().selectCyber(e.features[0].properties.cyberId)
       }
     })
 
@@ -617,7 +871,34 @@ export function MapboxGlobeView() {
         return
       }
     }
-  }, [selectedSatId, selectedMmsi, selectedIcao, selectedEventId, toggles, getPositions, vessels, flights, weatherEvents])
+
+    // News selected
+    if (selectedNewsId !== null) {
+      const e = newsEvents.get(selectedNewsId)
+      if (e) {
+        map.flyTo({ center: [e.lon, e.lat], zoom: 5, duration: 1500 })
+        return
+      }
+    }
+
+    // Conflict selected
+    if (selectedConflictId !== null) {
+      const e = conflictEvents.get(selectedConflictId)
+      if (e) {
+        map.flyTo({ center: [e.lon, e.lat], zoom: 6, duration: 1500 })
+        return
+      }
+    }
+
+    // Cyber selected
+    if (selectedCyberId !== null) {
+      const e = cyberEvents.get(selectedCyberId)
+      if (e) {
+        map.flyTo({ center: [e.lon, e.lat], zoom: 5, duration: 1500 })
+        return
+      }
+    }
+  }, [selectedSatId, selectedMmsi, selectedIcao, selectedEventId, selectedNewsId, selectedConflictId, selectedCyberId, toggles, getPositions, vessels, flights, weatherEvents, newsEvents, conflictEvents, cyberEvents])
 
   // Use timeline cursor only when not live
   const cursorForFilter = timelineLive ? undefined : timelineCursor
@@ -664,6 +945,30 @@ export function MapboxGlobeView() {
     if (src) src.setData(buildTrailGeoJSON(flightHistory, vesselHistory, selectedIcao, selectedMmsi))
   }, [selectedIcao, selectedMmsi, flightVersion, vesselVersion, flightHistory, vesselHistory])
 
+  // Sync news data
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+    const src = map.getSource('news-events') as mapboxgl.GeoJSONSource | undefined
+    if (src) src.setData(buildNewsGeoJSON(newsEvents, selectedNewsId, newsCategoryToggles, cursorForFilter))
+  }, [newsVersion, newsEvents, selectedNewsId, newsCategoryToggles, cursorForFilter])
+
+  // Sync conflict data
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+    const src = map.getSource('conflict-events') as mapboxgl.GeoJSONSource | undefined
+    if (src) src.setData(buildConflictGeoJSON(conflictEvents, selectedConflictId, conflictTypeToggles, cursorForFilter))
+  }, [conflictVersion, conflictEvents, selectedConflictId, conflictTypeToggles, cursorForFilter])
+
+  // Sync cyber data
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+    const src = map.getSource('cyber-events') as mapboxgl.GeoJSONSource | undefined
+    if (src) src.setData(buildCyberGeoJSON(cyberEvents, selectedCyberId, cyberTypeToggles, cursorForFilter))
+  }, [cyberVersion, cyberEvents, selectedCyberId, cyberTypeToggles, cursorForFilter])
+
   // Sync all data after style change
   useEffect(() => {
     const map = mapRef.current
@@ -681,10 +986,17 @@ export function MapboxGlobeView() {
       if (weatherSrc) weatherSrc.setData(buildWeatherGeoJSON(weatherEvents, selectedEventId, weatherTypeToggles, cursorForFilter))
       const alertSrc = map.getSource('weather-alerts') as mapboxgl.GeoJSONSource | undefined
       if (alertSrc) alertSrc.setData(buildWeatherAlertGeoJSON(weatherEvents, weatherTypeToggles))
+      const newsSrc = map.getSource('news-events') as mapboxgl.GeoJSONSource | undefined
+      if (newsSrc) newsSrc.setData(buildNewsGeoJSON(newsEvents, selectedNewsId, newsCategoryToggles, cursorForFilter))
+      const conflictSrc = map.getSource('conflict-events') as mapboxgl.GeoJSONSource | undefined
+      if (conflictSrc) conflictSrc.setData(buildConflictGeoJSON(conflictEvents, selectedConflictId, conflictTypeToggles, cursorForFilter))
+      const cyberSrc = map.getSource('cyber-events') as mapboxgl.GeoJSONSource | undefined
+      if (cyberSrc) cyberSrc.setData(buildCyberGeoJSON(cyberEvents, selectedCyberId, cyberTypeToggles, cursorForFilter))
     }
     map.on('style.load', syncAll)
     return () => { map.off('style.load', syncAll) }
-  }, [toggles, getPositions, selectedSatId, satVersion, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory, weatherEvents, selectedEventId, weatherVersion, weatherTypeToggles, cursorForFilter])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toggles, getPositions, selectedSatId, satVersion, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory, weatherEvents, selectedEventId, weatherVersion, weatherTypeToggles, newsEvents, selectedNewsId, newsVersion, newsCategoryToggles, conflictEvents, selectedConflictId, conflictVersion, conflictTypeToggles, cyberEvents, selectedCyberId, cyberVersion, cyberTypeToggles, cursorForFilter])
 
   return (
     <div className="fixed top-[46px] left-64 right-[272px] bottom-[34px]">

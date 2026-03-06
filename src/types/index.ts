@@ -132,6 +132,121 @@ export interface WeatherEvent {
   lastUpdate: number
 }
 
+// ─── News ──────────────────────────────────────────────────────────────────
+
+export type NewsCategory = 'conflict' | 'politics' | 'disaster' | 'economy' | 'technology' | 'health' | 'environment' | 'other'
+
+export const NEWS_CATEGORIES: NewsCategory[] = ['conflict', 'politics', 'disaster', 'economy', 'technology', 'health', 'environment', 'other']
+
+export const NEWS_CATEGORY_LABELS: Record<NewsCategory, string> = {
+  conflict: 'Conflict',
+  politics: 'Politics',
+  disaster: 'Disaster',
+  economy: 'Economy',
+  technology: 'Technology',
+  health: 'Health',
+  environment: 'Environment',
+  other: 'Other',
+}
+
+export interface NewsEvent {
+  id: string
+  title: string
+  url: string
+  source: string
+  category: NewsCategory
+  lat: number
+  lon: number
+  tone: number
+  articleCount: number
+  imageUrl: string | null
+  time: number
+  lastUpdate: number
+}
+
+// ─── Conflicts ─────────────────────────────────────────────────────────────
+
+export type ConflictEventType = 'battle' | 'protest' | 'riot' | 'explosion' | 'violence' | 'strategic'
+
+export const CONFLICT_EVENT_TYPES: ConflictEventType[] = ['battle', 'protest', 'riot', 'explosion', 'violence', 'strategic']
+
+export const CONFLICT_EVENT_LABELS: Record<ConflictEventType, string> = {
+  battle: 'Battle',
+  protest: 'Protest',
+  riot: 'Riot',
+  explosion: 'Explosion',
+  violence: 'Violence',
+  strategic: 'Strategic',
+}
+
+export interface ConflictEvent {
+  id: string
+  type: ConflictEventType
+  title: string
+  description: string
+  actors: string[]
+  fatalities: number
+  lat: number
+  lon: number
+  source: 'acled' | 'gdelt' | 'ucdp'
+  time: number
+  lastUpdate: number
+}
+
+// ─── Cyber & Infrastructure ────────────────────────────────────────────────
+
+export type CyberEventType = 'ddos' | 'scan' | 'malware' | 'outage' | 'vulnerability'
+
+export const CYBER_EVENT_TYPES: CyberEventType[] = ['ddos', 'scan', 'malware', 'outage', 'vulnerability']
+
+export const CYBER_EVENT_LABELS: Record<CyberEventType, string> = {
+  ddos: 'DDoS',
+  scan: 'Scan',
+  malware: 'Malware',
+  outage: 'Outage',
+  vulnerability: 'Vulnerability',
+}
+
+export interface CyberEvent {
+  id: string
+  type: CyberEventType
+  title: string
+  description: string
+  ip: string | null
+  lat: number
+  lon: number
+  severity: number
+  source: 'abuseipdb' | 'ioda'
+  time: number
+  lastUpdate: number
+}
+
+export interface InfrastructureAsset {
+  id: string
+  type: 'cable' | 'power-plant' | 'landing-point'
+  name: string
+  lat: number
+  lon: number
+  metadata: Record<string, unknown>
+}
+
+// ─── RF Spectrum ───────────────────────────────────────────────────────────
+
+export interface RFSpot {
+  id: string
+  frequency: number
+  mode: string
+  txCall: string
+  txLat: number
+  txLon: number
+  rxCall: string
+  rxLat: number
+  rxLon: number
+  snr: number
+  time: number
+  source: 'psk' | 'rbn' | 'satnogs'
+}
+
 export interface VesselRecord {
   mmsi: number
   name: string

@@ -3,6 +3,9 @@ import { useSatelliteInit } from '@/hooks/useSatelliteInit'
 import { useVesselInit } from '@/hooks/useVesselInit'
 import { useFlightInit } from '@/hooks/useFlightInit'
 import { useWeatherInit } from '@/hooks/useWeatherInit'
+import { useNewsInit } from '@/hooks/useNewsInit'
+import { useConflictInit } from '@/hooks/useConflictInit'
+import { useCyberInit } from '@/hooks/useCyberInit'
 import { TopBar } from '@/components/panels/TopBar'
 import { BottomBar } from '@/components/panels/BottomBar'
 import { LeftPanel } from '@/components/panels/left/LeftPanel'
@@ -14,6 +17,9 @@ export default function App() {
   useVesselInit()
   useFlightInit()
   useWeatherInit()
+  useNewsInit()
+  useConflictInit()
+  useCyberInit()
 
   const activeView = useAppStore(s => s.activeView)
 
