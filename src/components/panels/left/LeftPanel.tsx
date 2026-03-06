@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { SearchInput } from './shared'
 import { SatelliteSection } from './SatelliteSection'
 import { MaritimeSection } from './MaritimeSection'
@@ -16,17 +16,32 @@ import { SearchResults } from './SearchResults'
 
 type SectionId = 'satellites' | 'maritime' | 'aircraft' | 'weather' | 'news' | 'conflicts' | 'cyber' | 'osint' | 'ports' | 'rf' | 'economic' | 'cameras'
 
+const STORAGE_KEY = 'eagle-eye-expanded-sections'
+
+function loadExpandedSections(): Set<SectionId> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) return new Set(JSON.parse(raw) as SectionId[])
+  } catch { /* ignore */ }
+  return new Set()
+}
+
 export function LeftPanel() {
-  const [expandedSections, setExpandedSections] = useState<Set<SectionId>>(new Set())
+  const [expandedSections, setExpandedSections] = useState<Set<SectionId>>(loadExpandedSections)
   const [globalQuery, setGlobalQuery] = useState('')
 
-  const toggleSection = (id: SectionId) => {
+  // Persist expanded sections to localStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([...expandedSections]))
+  }, [expandedSections])
+
+  const toggleSection = useCallback((id: SectionId) => {
     setExpandedSections(prev => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
-  }
+  }, [])
 
   const isSearching = globalQuery.length > 0
 
