@@ -740,6 +740,10 @@ export function MapboxGlobeView() {
   const [mapReady, setMapReady] = useState(false)
   const [mapStyle, setMapStyle] = useState<MapStyle>('dark')
   const [vizMode, setVizMode] = useState<VizMode>('standard')
+  const [vizBrightness, setVizBrightness] = useState(1.4)
+  const [vizContrast, setVizContrast] = useState(1.3)
+  const [vizPopoverOpen, setVizPopoverOpen] = useState(false)
+  const vizPopoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const layersReadyRef = useRef(false)
 
   // Read from stores
@@ -1248,7 +1252,11 @@ export function MapboxGlobeView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toggles, getPositions, selectedSatId, satVersion, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory, weatherEvents, selectedEventId, weatherVersion, weatherTypeToggles, newsEvents, selectedNewsId, newsVersion, newsCategoryToggles, conflictEvents, selectedConflictId, conflictVersion, conflictTypeToggles, cyberEvents, selectedCyberId, cyberVersion, cyberTypeToggles, osintPosts, osintVersion, osintPlatformToggles, portData, portVersion, portVisible, rfSpots, rfVersion, rfSourceToggles, cameraData, cameraVersion, cameraVisible, cursorForFilter])
 
-  const filterStyle = VIZ_MODE_FILTERS[vizMode]
+  const filterStyle = vizMode === 'thermal'
+    ? `grayscale(1) brightness(${vizBrightness}) contrast(${vizContrast})`
+    : vizMode === 'nvg'
+    ? `brightness(${vizBrightness}) contrast(${vizContrast}) saturate(0.3) sepia(1) hue-rotate(70deg) saturate(2.5)`
+    : VIZ_MODE_FILTERS[vizMode]
 
   return (
     <div className="fixed top-[46px] left-64 right-[272px] bottom-[34px]">
@@ -1325,30 +1333,96 @@ export function MapboxGlobeView() {
         </div>
 
         {/* Visualization mode toggle */}
-        <div className="flex rounded-md overflow-hidden border border-zinc-700 bg-zinc-900/90 backdrop-blur-sm">
-          {(['standard', 'nvg', 'thermal', 'crt'] as const).map((mode, i) => (
-            <button
-              key={mode}
-              onClick={() => {
-                setVizMode(mode)
-                if ((mode === 'nvg' || mode === 'thermal') && mapStyle !== 'dark') {
-                  handleStyleChange('dark')
-                }
-              }}
-              className={cn(
-                'px-2 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors',
-                vizMode === mode
-                  ? mode === 'nvg' ? 'bg-green-500/20 text-green-400'
-                    : mode === 'thermal' ? 'bg-red-500/20 text-red-400'
-                    : mode === 'crt' ? 'bg-amber-500/20 text-amber-400'
-                    : 'bg-orange-500/20 text-orange-400'
-                  : 'text-zinc-500 hover:text-zinc-300',
-                i < 3 && 'border-r border-zinc-700',
-              )}
-            >
-              {mode === 'standard' ? 'std' : mode}
-            </button>
-          ))}
+        <div className="relative flex rounded-md overflow-visible border border-zinc-700 bg-zinc-900/90 backdrop-blur-sm">
+          {(['standard', 'nvg', 'thermal', 'crt'] as const).map((mode, i) => {
+            const isActive = vizMode === mode
+            const hasControls = isActive && (mode === 'nvg' || mode === 'thermal')
+            return (
+              <div
+                key={mode}
+                className="relative"
+                onMouseEnter={() => {
+                  if (hasControls) {
+                    if (vizPopoverTimeout.current) clearTimeout(vizPopoverTimeout.current)
+                    setVizPopoverOpen(true)
+                  }
+                }}
+                onMouseLeave={() => {
+                  if (hasControls) {
+                    vizPopoverTimeout.current = setTimeout(() => setVizPopoverOpen(false), 300)
+                  }
+                }}
+              >
+                <button
+                  onClick={() => {
+                    setVizMode(mode)
+                    setVizPopoverOpen(false)
+                    if ((mode === 'nvg' || mode === 'thermal') && mapStyle !== 'dark') {
+                      handleStyleChange('dark')
+                    }
+                    if (mode === 'nvg') { setVizBrightness(1.6); setVizContrast(1.3) }
+                    else if (mode === 'thermal') { setVizBrightness(1.4); setVizContrast(1.3) }
+                  }}
+                  className={cn(
+                    'px-2 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors',
+                    isActive
+                      ? mode === 'nvg' ? 'bg-green-500/20 text-green-400'
+                        : mode === 'thermal' ? 'bg-red-500/20 text-red-400'
+                        : mode === 'crt' ? 'bg-amber-500/20 text-amber-400'
+                        : 'bg-orange-500/20 text-orange-400'
+                      : 'text-zinc-500 hover:text-zinc-300',
+                    i < 3 && 'border-r border-zinc-700',
+                  )}
+                >
+                  {mode === 'standard' ? 'std' : mode}
+                </button>
+
+                {/* Brightness/Contrast popover */}
+                {hasControls && vizPopoverOpen && (
+                  <div
+                    className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 bg-zinc-900/95 border border-zinc-700 rounded-md shadow-xl p-3 z-50 backdrop-blur-sm"
+                    onMouseEnter={() => {
+                      if (vizPopoverTimeout.current) clearTimeout(vizPopoverTimeout.current)
+                    }}
+                    onMouseLeave={() => {
+                      vizPopoverTimeout.current = setTimeout(() => setVizPopoverOpen(false), 300)
+                    }}
+                  >
+                    <div className="mb-2.5">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-mono text-[9px] text-zinc-500 uppercase tracking-wider">Brightness</span>
+                        <span className="font-mono text-[9px] text-zinc-400">{vizBrightness.toFixed(1)}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="2.5"
+                        step="0.1"
+                        value={vizBrightness}
+                        onChange={(e) => setVizBrightness(parseFloat(e.target.value))}
+                        className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-zinc-400"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-mono text-[9px] text-zinc-500 uppercase tracking-wider">Contrast</span>
+                        <span className="font-mono text-[9px] text-zinc-400">{vizContrast.toFixed(1)}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="3.0"
+                        step="0.1"
+                        value={vizContrast}
+                        onChange={(e) => setVizContrast(parseFloat(e.target.value))}
+                        className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-zinc-400"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       </div>
 
