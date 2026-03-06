@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { CONSTELLATIONS } from '@/data/constellations'
 import { cn } from '@/lib/utils'
-import { VESSEL_TYPE_COLORS, FLIGHT_TYPE_COLORS, WEATHER_TYPE_COLORS, NEWS_CATEGORY_COLORS, CONFLICT_TYPE_COLORS, CYBER_TYPE_COLORS } from '@/lib/colors'
+import { VESSEL_TYPE_COLORS, FLIGHT_TYPE_COLORS, WEATHER_TYPE_COLORS, NEWS_CATEGORY_COLORS, CONFLICT_TYPE_COLORS, CYBER_TYPE_COLORS, OSINT_PLATFORM_COLORS, RF_SOURCE_COLORS } from '@/lib/colors'
 import { useSatelliteStore } from '@/stores/satellite-store'
 import { useVesselStore } from '@/stores/vessel-store'
 import { useFlightStore } from '@/stores/flight-store'
@@ -9,13 +9,15 @@ import { useWeatherStore } from '@/stores/weather-store'
 import { useNewsStore } from '@/stores/news-store'
 import { useConflictStore } from '@/stores/conflict-store'
 import { useCyberStore } from '@/stores/cyber-store'
+import { useRFStore } from '@/stores/rf-store'
 import { useAlertStore } from '@/stores/alert-store'
+import { useOsintStore } from '@/stores/osint-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { useWatchlistStore } from '@/stores/watchlist-store'
 import { useFlightInfo } from '@/hooks/useFlightInfo'
 import { findNearbyEntities, type CorrelatedEntity } from '@/lib/correlation'
 import type { HexdbFlightInfo } from '@/lib/hexdb'
-import type { SatelliteRecord, SatellitePosition, VesselRecord, FlightRecord, ConstellationMeta, WeatherEvent, NewsEvent, ConflictEvent, CyberEvent } from '@/types'
+import type { SatelliteRecord, SatellitePosition, VesselRecord, FlightRecord, ConstellationMeta, WeatherEvent, NewsEvent, ConflictEvent, CyberEvent, RFSpot } from '@/types'
 import type { SanctionMatch } from '@/lib/sanctions-client'
 
 const NAV_STATUS_LABELS: Record<number, string> = {
@@ -31,8 +33,6 @@ const NAV_STATUS_LABELS: Record<number, string> = {
   15: 'Undefined',
 }
 
-type PanelMode = 'detail' | 'alerts'
-
 const DOMAIN_COLORS_MAP: Record<string, string> = {
   vessel: 'text-cyan-400',
   flight: 'text-yellow-400',
@@ -44,8 +44,7 @@ const DOMAIN_COLORS_MAP: Record<string, string> = {
 }
 
 export function RightPanel() {
-  const [panelMode, setPanelMode] = useState<PanelMode>('detail')
-  const { selectedSatId, selectedMmsi, selectedIcao, selectedEventId, selectedNewsId, selectedConflictId, selectedCyberId } = useSelectionStore()
+  const { selectedSatId, selectedMmsi, selectedIcao, selectedEventId, selectedNewsId, selectedConflictId, selectedCyberId, selectedRFId } = useSelectionStore()
   const { getSatellites, getPositions, toggles, version: satVersion } = useSatelliteStore()
   const { vessels, version: vesselVersion } = useVesselStore()
   const { flights, version: flightVersion } = useFlightStore()
@@ -53,8 +52,7 @@ export function RightPanel() {
   const { events: newsEvents, version: newsVersion } = useNewsStore()
   const { events: conflictEvents, version: conflictVersion } = useConflictStore()
   const { events: cyberEvents, version: cyberVersion } = useCyberStore()
-  const alerts = useAlertStore(s => s.alerts)
-  const unackCount = useAlertStore(s => s.unacknowledgedCount)
+  const { spots: rfSpots, version: rfVersion } = useRFStore()
 
   // Derive selected records
   void vesselVersion
@@ -63,12 +61,14 @@ export function RightPanel() {
   void newsVersion
   void conflictVersion
   void cyberVersion
+  void rfVersion
   const selectedVessel = selectedMmsi ? vessels.get(selectedMmsi) ?? null : null
   const selectedFlight = selectedIcao ? flights.get(selectedIcao) ?? null : null
   const selectedEvent = selectedEventId ? events.get(selectedEventId) ?? null : null
   const selectedNews = selectedNewsId ? newsEvents.get(selectedNewsId) ?? null : null
   const selectedConflict = selectedConflictId ? conflictEvents.get(selectedConflictId) ?? null : null
   const selectedCyber = selectedCyberId ? cyberEvents.get(selectedCyberId) ?? null : null
+  const selectedRF = selectedRFId ? rfSpots.get(selectedRFId) ?? null : null
 
   const { satellite: selectedSatellite, position: selectedPosition } = useMemo(() => {
     if (!selectedSatId) return { satellite: null, position: null }
@@ -101,7 +101,8 @@ export function RightPanel() {
   const epochAge = epochAgeRef.current
 
   // Determine entity ID + lat/lon for watchlist and nearby
-  const selectedEntityId = selectedCyber ? `cyber-${selectedCyber.id}`
+  const selectedEntityId = selectedRF ? `rf-${selectedRF.id}`
+    : selectedCyber ? `cyber-${selectedCyber.id}`
     : selectedConflict ? `conflict-${selectedConflict.id}`
     : selectedNews ? `news-${selectedNews.id}`
     : selectedEvent ? `weather-${selectedEvent.id}`
@@ -110,8 +111,8 @@ export function RightPanel() {
     : selectedSatellite ? `sat-${selectedSatellite.noradId}`
     : null
 
-  const selectedLat = selectedCyber?.lat ?? selectedConflict?.lat ?? selectedNews?.lat ?? selectedEvent?.lat ?? selectedFlight?.lat ?? selectedVessel?.lat ?? selectedPosition?.lat ?? null
-  const selectedLon = selectedCyber?.lon ?? selectedConflict?.lon ?? selectedNews?.lon ?? selectedEvent?.lon ?? selectedFlight?.lon ?? selectedVessel?.lon ?? selectedPosition?.lon ?? null
+  const selectedLat = selectedRF?.rxLat ?? selectedCyber?.lat ?? selectedConflict?.lat ?? selectedNews?.lat ?? selectedEvent?.lat ?? selectedFlight?.lat ?? selectedVessel?.lat ?? selectedPosition?.lat ?? null
+  const selectedLon = selectedRF?.rxLon ?? selectedCyber?.lon ?? selectedConflict?.lon ?? selectedNews?.lon ?? selectedEvent?.lon ?? selectedFlight?.lon ?? selectedVessel?.lon ?? selectedPosition?.lon ?? null
 
   // Watchlist
   const isWatched = useWatchlistStore(s => selectedEntityId ? s.watchlist.has(selectedEntityId) : false)
@@ -134,7 +135,8 @@ export function RightPanel() {
 
   // Determine panel title
   let panelTitle = 'Entity Detail'
-  if (selectedCyber) panelTitle = 'Cyber Threat'
+  if (selectedRF) panelTitle = 'RF Signal'
+  else if (selectedCyber) panelTitle = 'Cyber Threat'
   else if (selectedConflict) panelTitle = 'Conflict Event'
   else if (selectedNews) panelTitle = 'News Event'
   else if (selectedEvent) panelTitle = 'Weather Event'
@@ -142,54 +144,33 @@ export function RightPanel() {
   else if (selectedVessel) panelTitle = 'Vessel Detail'
   else if (selectedSatellite) panelTitle = 'Satellite Detail'
 
-  const hasSelection = selectedSatellite || selectedVessel || selectedFlight || selectedEvent || selectedNews || selectedConflict || selectedCyber
+  const hasSelection = selectedSatellite || selectedVessel || selectedFlight || selectedEvent || selectedNews || selectedConflict || selectedCyber || selectedRF
+
+  // Entity selected by ID but data not yet resolved (e.g. alert clicked during data refresh)
+  const hasSelectionId = selectedSatId !== null || selectedMmsi !== null || selectedIcao !== null || selectedEventId !== null || selectedNewsId !== null || selectedConflictId !== null || selectedCyberId !== null || selectedRFId !== null
+  const selectionPending = hasSelectionId && !hasSelection
 
   return (
     <aside className="fixed top-[46px] right-0 bottom-[34px] w-[272px] bg-zinc-900 border-l border-zinc-800 z-40 flex flex-col overflow-hidden">
 
-      {/* Header with mode toggle */}
+      {/* Header */}
       <div className="flex items-center justify-between px-3.5 h-9 border-b border-zinc-800 flex-shrink-0">
-        <div className="flex items-center gap-2">
+        <span className="font-display text-[12px] font-semibold tracking-[2px] uppercase text-zinc-400">
+          {hasSelection ? panelTitle : selectionPending ? 'Loading Entity...' : 'Intelligence Feed'}
+        </span>
+        {selectedEntityId && (
           <button
-            onClick={() => setPanelMode('detail')}
-            className={cn('font-display text-[12px] font-semibold tracking-[2px] uppercase transition-colors',
-              panelMode === 'detail' ? 'text-zinc-400' : 'text-zinc-700 hover:text-zinc-500'
-            )}
+            onClick={() => toggleWatch(selectedEntityId)}
+            className={cn('text-sm transition-colors', isWatched ? 'text-orange-400' : 'text-zinc-600 hover:text-zinc-400')}
+            title={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}
           >
-            {panelTitle}
+            {isWatched ? '★' : '☆'}
           </button>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {selectedEntityId && (
-            <button
-              onClick={() => toggleWatch(selectedEntityId)}
-              className={cn('text-sm transition-colors', isWatched ? 'text-orange-400' : 'text-zinc-600 hover:text-zinc-400')}
-              title={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}
-            >
-              {isWatched ? '★' : '☆'}
-            </button>
-          )}
-          <button
-            onClick={() => setPanelMode(panelMode === 'alerts' ? 'detail' : 'alerts')}
-            className={cn(
-              'relative px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider rounded border transition-colors',
-              panelMode === 'alerts'
-                ? 'text-orange-400 border-orange-800/60 bg-orange-950/40'
-                : 'text-zinc-600 border-zinc-700 hover:text-zinc-400',
-            )}
-          >
-            Alerts
-            {unackCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
-                {unackCount > 99 ? '99' : unackCount}
-              </span>
-            )}
-          </button>
-        </div>
+        )}
       </div>
 
-      {panelMode === 'alerts' ? (
-        <AlertsPanel />
+      {selectedRF ? (
+        <RFDetail spot={selectedRF} nearby={nearby} />
       ) : selectedCyber ? (
         <CyberDetail event={selectedCyber} nearby={nearby} />
       ) : selectedConflict ? (
@@ -204,19 +185,27 @@ export function RightPanel() {
         <VesselDetail vessel={selectedVessel} nearby={nearby} />
       ) : selectedSatellite ? (
         <SatelliteDetail satellite={selectedSatellite} position={selectedPosition} constellation={constellation} colorHex={colorHex} epochAge={epochAge} nearby={nearby} />
-      ) : (
+      ) : selectionPending ? (
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-[13px] text-zinc-600">Select an entity to view details</p>
+          <div className="text-center">
+            <div className="inline-block w-5 h-5 border-2 border-zinc-700 border-t-orange-400 rounded-full animate-spin mb-3" />
+            <p className="font-mono text-[11px] text-zinc-500">Loading entity data...</p>
+          </div>
         </div>
+      ) : (
+        <IntelligenceFeed />
       )}
     </aside>
   )
 }
 
-function AlertsPanel() {
+function IntelligenceFeed() {
   const alerts = useAlertStore(s => s.alerts)
+  const unackCount = useAlertStore(s => s.unacknowledgedCount)
   const acknowledge = useAlertStore(s => s.acknowledge)
   const acknowledgeAll = useAlertStore(s => s.acknowledgeAll)
+  const { posts, platformToggles, version, count } = useOsintStore()
+  const { selectEvent, selectConflict, selectCyber, selectVessel, selectFlight } = useSelectionStore()
 
   const severityColor = (sev: string) => {
     if (sev === 'critical') return 'text-red-400 border-l-red-500'
@@ -224,36 +213,104 @@ function AlertsPanel() {
     return 'text-blue-400 border-l-blue-500'
   }
 
+  const sortedPosts = useMemo(() => {
+    void version
+    return [...posts.values()]
+      .filter(p => platformToggles.get(p.platform) !== false)
+      .sort((a, b) => b.time - a.time)
+      .slice(0, 50)
+  }, [version, posts, platformToggles])
+
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
-      {alerts.length > 0 && (
+      {/* Alerts section */}
+      <div className="border-b border-zinc-800">
         <div className="px-3.5 py-2 border-b border-zinc-800 flex items-center justify-between">
-          <span className="font-mono text-[11px] text-zinc-500">{alerts.length} alerts</span>
-          <button onClick={acknowledgeAll} className="font-mono text-[10px] text-zinc-600 hover:text-zinc-400 uppercase tracking-wider">Ack All</button>
-        </div>
-      )}
-      {alerts.length === 0 && (
-        <div className="flex-1 flex items-center justify-center py-12">
-          <p className="text-[13px] text-zinc-600">No alerts</p>
-        </div>
-      )}
-      {alerts.map(a => (
-        <button
-          key={a.id}
-          onClick={() => !a.acknowledged && acknowledge(a.id)}
-          className={cn(
-            'w-full text-left px-3.5 py-2 border-b border-zinc-800/50 border-l-2 transition-colors',
-            severityColor(a.severity),
-            a.acknowledged ? 'opacity-40' : 'hover:bg-zinc-800/30',
-          )}
-        >
-          <div className="font-mono text-[11px] font-medium">{a.title}</div>
-          <div className="font-mono text-[10px] text-zinc-500 mt-0.5 truncate">{a.description}</div>
-          <div className="font-mono text-[9px] text-zinc-600 mt-0.5 uppercase">
-            {a.domain} — {new Date(a.time).toISOString().slice(11, 19)}Z
+          <div className="flex items-center gap-2">
+            <span className="font-display text-[11px] font-semibold tracking-[2px] text-zinc-500 uppercase">Alerts</span>
+            {unackCount > 0 && (
+              <span className="bg-red-500 text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
+                {unackCount > 99 ? '99' : unackCount}
+              </span>
+            )}
           </div>
-        </button>
-      ))}
+          {alerts.length > 0 && (
+            <button onClick={acknowledgeAll} className="font-mono text-[10px] text-zinc-600 hover:text-zinc-400 uppercase tracking-wider">Ack All</button>
+          )}
+        </div>
+        {alerts.length === 0 ? (
+          <div className="py-6 text-center">
+            <p className="text-[11px] text-zinc-600 font-mono">No alerts</p>
+          </div>
+        ) : (
+          alerts.map(a => (
+            <button
+              key={a.id}
+              onClick={() => {
+                if (!a.acknowledged) acknowledge(a.id)
+                if (a.entityId) {
+                  switch (a.domain) {
+                    case 'weather': selectEvent(a.entityId); break
+                    case 'conflict': selectConflict(a.entityId); break
+                    case 'cyber': selectCyber(a.entityId); break
+                    case 'vessel': selectVessel(Number(a.entityId)); break
+                    case 'flight': selectFlight(a.entityId); break
+                  }
+                }
+              }}
+              className={cn(
+                'w-full text-left px-3.5 py-2 border-b border-zinc-800/50 border-l-2 transition-colors',
+                severityColor(a.severity),
+                a.acknowledged ? 'opacity-40' : 'hover:bg-zinc-800/30',
+              )}
+            >
+              <div className="font-mono text-[11px] font-medium">{a.title}</div>
+              <div className="font-mono text-[10px] text-zinc-500 mt-0.5 truncate">{a.description}</div>
+              <div className="font-mono text-[9px] text-zinc-600 mt-0.5 uppercase">
+                {a.domain} — {new Date(a.time).toISOString().slice(11, 19)}Z
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+
+      {/* OSINT feed section */}
+      <div>
+        <div className="px-3.5 py-2 border-b border-zinc-800 flex items-center gap-2">
+          <span className="font-display text-[11px] font-semibold tracking-[2px] text-teal-400 uppercase">OSINT</span>
+          <span className="font-mono text-[10px] text-zinc-600">{count}</span>
+        </div>
+        {sortedPosts.length === 0 ? (
+          <div className="py-6 text-center">
+            <p className="text-[11px] text-zinc-600 font-mono">{count === 0 ? 'Loading OSINT...' : 'No geolocated posts'}</p>
+          </div>
+        ) : (
+          sortedPosts.map(post => (
+            <a
+              key={post.id}
+              href={post.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block px-3.5 py-2 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors"
+            >
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <span className={cn(
+                  'font-mono text-[9px] uppercase tracking-wider px-1 rounded',
+                  OSINT_PLATFORM_COLORS[post.platform],
+                )}>
+                  {post.platform.slice(0, 3)}
+                </span>
+                <span className="font-mono text-[10px] text-zinc-600">{post.author}</span>
+                <span className="font-mono text-[9px] text-zinc-700 ml-auto">{post.locationName}</span>
+              </div>
+              <div className="font-mono text-[11px] text-zinc-400 truncate">{post.text}</div>
+              <div className="font-mono text-[9px] text-zinc-600 mt-0.5">
+                {new Date(post.time).toISOString().slice(11, 19)}Z
+              </div>
+            </a>
+          ))
+        )}
+      </div>
     </div>
   )
 }
@@ -410,6 +467,56 @@ function CyberDetail({ event, nearby }: { event: CyberEvent; nearby: CorrelatedE
           <p className="font-mono text-[11px] text-zinc-400 leading-relaxed whitespace-pre-wrap">{event.description.slice(0, 500)}</p>
         </div>
       )}
+
+      <NearbyEntities nearby={nearby} />
+    </div>
+  )
+}
+
+function RFDetail({ spot, nearby }: { spot: RFSpot; nearby: CorrelatedEntity[] }) {
+  const freqMHz = (spot.frequency / 1_000_000).toFixed(3)
+  const band = spot.frequency < 30_000_000 ? 'HF' : spot.frequency < 300_000_000 ? 'VHF' : 'UHF+'
+
+  return (
+    <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
+      <div className="px-3.5 py-3 border-b border-zinc-800">
+        <div className="font-display text-sm font-bold tracking-wide text-zinc-50">{spot.txCall} → {spot.rxCall}</div>
+        <div className="flex items-center gap-2 mt-1.5">
+          <span className="font-mono text-[12px] text-zinc-500">{spot.mode}</span>
+          <span className={cn(
+            'font-display text-[13px] font-semibold tracking-[1px] uppercase px-1.5 py-0.5 rounded-sm border',
+            RF_SOURCE_COLORS[spot.source] || 'text-violet-400 border-violet-800/60 bg-violet-950/40',
+          )}>{spot.source}</span>
+        </div>
+      </div>
+
+      <div className="px-3.5 py-3 border-b border-zinc-800">
+        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Signal</div>
+        <div className="grid grid-cols-2 gap-2">
+          <DetailRow label="Frequency" value={`${freqMHz} MHz`} />
+          <DetailRow label="Band" value={band} />
+          <DetailRow label="SNR" value={`${spot.snr} dB`} warn={spot.snr < 5} />
+          <DetailRow label="Time" value={new Date(spot.time).toISOString().slice(11, 19) + 'Z'} />
+        </div>
+      </div>
+
+      <div className="px-3.5 py-3 border-b border-zinc-800">
+        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Transmitter</div>
+        <div className="grid grid-cols-2 gap-2">
+          <DetailRow label="Callsign" value={spot.txCall} />
+          <DetailRow label="Latitude" value={spot.txLat !== 0 ? `${Math.abs(spot.txLat).toFixed(4)}°${spot.txLat >= 0 ? 'N' : 'S'}` : 'N/A'} />
+          <DetailRow label="Longitude" value={spot.txLon !== 0 ? `${Math.abs(spot.txLon).toFixed(4)}°${spot.txLon >= 0 ? 'E' : 'W'}` : 'N/A'} />
+        </div>
+      </div>
+
+      <div className="px-3.5 py-3 border-b border-zinc-800">
+        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Receiver</div>
+        <div className="grid grid-cols-2 gap-2">
+          <DetailRow label="Callsign" value={spot.rxCall} />
+          <DetailRow label="Latitude" value={spot.rxLat !== 0 ? `${Math.abs(spot.rxLat).toFixed(4)}°${spot.rxLat >= 0 ? 'N' : 'S'}` : 'N/A'} />
+          <DetailRow label="Longitude" value={spot.rxLon !== 0 ? `${Math.abs(spot.rxLon).toFixed(4)}°${spot.rxLon >= 0 ? 'E' : 'W'}` : 'N/A'} />
+        </div>
+      </div>
 
       <NearbyEntities nearby={nearby} />
     </div>

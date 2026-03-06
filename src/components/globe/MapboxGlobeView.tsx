@@ -15,10 +15,10 @@ import { useOsintStore } from '@/stores/osint-store'
 import { usePortStore } from '@/stores/port-store'
 import { useCameraStore } from '@/stores/camera-store'
 import { useRFStore } from '@/stores/rf-store'
-import { useEconomicStore } from '@/stores/economic-store'
+// import { useEconomicStore } from '@/stores/economic-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { useAppStore } from '@/stores/app-store'
-import { WEATHER_TYPE_DOT_COLORS, NEWS_CATEGORY_DOT_COLORS, CONFLICT_TYPE_DOT_COLORS, CYBER_TYPE_DOT_COLORS, OSINT_PLATFORM_DOT_COLORS, RF_SOURCE_DOT_COLORS, PORT_SIZE_DOT_COLORS, ECONOMIC_INDICATOR_DOT_COLORS } from '@/lib/colors'
+import { WEATHER_TYPE_DOT_COLORS, NEWS_CATEGORY_DOT_COLORS, CONFLICT_TYPE_DOT_COLORS, CYBER_TYPE_DOT_COLORS, OSINT_PLATFORM_DOT_COLORS, RF_SOURCE_DOT_COLORS, PORT_SIZE_DOT_COLORS } from '@/lib/colors'
 import { CoordinateHUD } from './CoordinateHUD'
 import { MeasurementTool } from './MeasurementTool'
 import { GeofenceTool } from './GeofenceTool'
@@ -27,7 +27,7 @@ import type { ConstellationId, SatellitePosition, VesselRecord, FlightRecord, Ve
 import type { OsintPost } from '@/lib/osint-client'
 import type { Port } from '@/lib/ports-client'
 import type { Camera } from '@/lib/camera-client'
-import type { EconomicIndicator } from '@/lib/economic-client'
+// import type { EconomicIndicator } from '@/lib/economic-client'
 import type { PositionHistory } from '@/lib/position-history'
 
 type MapStyle = 'dark' | 'light'
@@ -102,7 +102,7 @@ function buildVesselGeoJSON(
 ): GeoJSONFeatureCollection {
   const features: GeoJSON.Feature<GeoJSON.Point>[] = []
   for (const [mmsi, v] of vessels) {
-    if (vesselTypeToggles.get(v.type) === false) continue
+    if (vesselTypeToggles.get(v.type) === false && mmsi !== selectedMmsi) continue
     if (timelineCursor && v.lastUpdate > timelineCursor) continue
     features.push({
       type: 'Feature',
@@ -125,7 +125,7 @@ function buildFlightGeoJSON(
 ): GeoJSONFeatureCollection {
   const features: GeoJSON.Feature<GeoJSON.Point>[] = []
   for (const [icao24, f] of flights) {
-    if (flightTypeToggles.get(f.type) === false) continue
+    if (flightTypeToggles.get(f.type) === false && icao24 !== selectedIcao) continue
     if (timelineCursor && f.lastUpdate > timelineCursor) continue
     features.push({
       type: 'Feature',
@@ -149,7 +149,7 @@ function buildWeatherGeoJSON(
 ): GeoJSONFeatureCollection {
   const features: GeoJSON.Feature<GeoJSON.Point>[] = []
   for (const [id, e] of events) {
-    if (typeToggles.get(e.type) === false) continue
+    if (typeToggles.get(e.type) === false && id !== selectedEventId) continue
     if (timelineCursor && e.lastUpdate > timelineCursor) continue
     features.push({
       type: 'Feature',
@@ -249,7 +249,7 @@ function buildConflictGeoJSON(
 ): GeoJSONFeatureCollection {
   const features: GeoJSON.Feature<GeoJSON.Point>[] = []
   for (const [id, e] of events) {
-    if (typeToggles.get(e.type) === false) continue
+    if (typeToggles.get(e.type) === false && id !== selectedConflictId) continue
     if (timelineCursor && e.lastUpdate > timelineCursor) continue
     features.push({
       type: 'Feature',
@@ -274,7 +274,7 @@ function buildCyberGeoJSON(
 ): GeoJSONFeatureCollection {
   const features: GeoJSON.Feature<GeoJSON.Point>[] = []
   for (const [id, e] of events) {
-    if (typeToggles.get(e.type) === false) continue
+    if (typeToggles.get(e.type) === false && id !== selectedCyberId) continue
     if (timelineCursor && e.lastUpdate > timelineCursor) continue
     features.push({
       type: 'Feature',
@@ -340,10 +340,11 @@ type RFSource = 'psk' | 'rbn' | 'satnogs'
 function buildRFGeoJSON(
   spots: Map<string, RFSpot>,
   sourceToggles: Map<RFSource, boolean>,
+  selectedRFId: string | null,
 ): GeoJSON.FeatureCollection<GeoJSON.LineString | GeoJSON.Point> {
   const features: GeoJSON.Feature<GeoJSON.LineString | GeoJSON.Point>[] = []
-  for (const [, spot] of spots) {
-    if (sourceToggles.get(spot.source) === false) continue
+  for (const [id, spot] of spots) {
+    if (sourceToggles.get(spot.source) === false && id !== selectedRFId) continue
     const color = RF_SOURCE_DOT_COLORS[spot.source] ?? '#a78bfa'
     // Arc line from TX → RX (only if both have valid coords)
     if (spot.txLat !== 0 && spot.txLon !== 0 && spot.rxLat !== 0 && spot.rxLon !== 0) {
@@ -353,7 +354,7 @@ function buildRFGeoJSON(
           type: 'LineString',
           coordinates: [[spot.txLon, spot.txLat], [spot.rxLon, spot.rxLat]],
         },
-        properties: { color, source: spot.source, snr: spot.snr },
+        properties: { rfId: id, color, source: spot.source, snr: spot.snr },
       })
     }
     // RX station point
@@ -361,36 +362,36 @@ function buildRFGeoJSON(
       features.push({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [spot.rxLon, spot.rxLat] },
-        properties: { color, source: spot.source },
+        properties: { rfId: id, color, source: spot.source, selected: id === selectedRFId },
       })
     }
   }
   return { type: 'FeatureCollection', features }
 }
 
-function buildEconomicGeoJSON(
-  indicators: Map<string, EconomicIndicator>,
-  selectedIndicator: string,
-): GeoJSONFeatureCollection {
-  const features: GeoJSON.Feature<GeoJSON.Point>[] = []
-  for (const [, ind] of indicators) {
-    if (ind.indicatorId !== selectedIndicator) continue
-    if (ind.value == null) continue
-    const color = ECONOMIC_INDICATOR_DOT_COLORS[ind.indicatorId] ?? '#34d399'
-    features.push({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [ind.lon, ind.lat] },
-      properties: {
-        econId: ind.id,
-        color,
-        value: ind.value,
-        country: ind.country,
-        countryCode: ind.countryCode,
-      },
-    })
-  }
-  return { type: 'FeatureCollection', features }
-}
+// function buildEconomicGeoJSON(
+//   indicators: Map<string, EconomicIndicator>,
+//   selectedIndicator: string,
+// ): GeoJSONFeatureCollection {
+//   const features: GeoJSON.Feature<GeoJSON.Point>[] = []
+//   for (const [, ind] of indicators) {
+//     if (ind.indicatorId !== selectedIndicator) continue
+//     if (ind.value == null) continue
+//     const color = ECONOMIC_INDICATOR_DOT_COLORS[ind.indicatorId] ?? '#34d399'
+//     features.push({
+//       type: 'Feature',
+//       geometry: { type: 'Point', coordinates: [ind.lon, ind.lat] },
+//       properties: {
+//         econId: ind.id,
+//         color,
+//         value: ind.value,
+//         country: ind.country,
+//         countryCode: ind.countryCode,
+//       },
+//     })
+//   }
+//   return { type: 'FeatureCollection', features }
+// }
 
 function buildCameraGeoJSON(
   cameras: Map<string, Camera>,
@@ -436,7 +437,7 @@ function addEntityLayers(map: mapboxgl.Map) {
     type: 'circle',
     source: 'entity-trail',
     paint: {
-      'circle-radius': 2.5,
+      'circle-radius': 1.5,
       'circle-color': ['get', 'color'],
       'circle-opacity': ['get', 'opacity'],
     },
@@ -463,96 +464,38 @@ function addEntityLayers(map: mapboxgl.Map) {
     } as mapboxgl.SymbolLayerSpecification['paint'],
   })
 
-  // --- Vessels with clustering ---
+  // --- Vessels ---
   map.addSource('vessels', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
-    cluster: true,
-    clusterMaxZoom: 14,
-    clusterRadius: 50,
   })
-  // Cluster circles
-  map.addLayer({
-    id: 'vessels-cluster',
-    type: 'circle',
-    source: 'vessels',
-    filter: ['has', 'point_count'],
-    paint: {
-      'circle-color': VESSEL_COLOR,
-      'circle-opacity': 0.6,
-      'circle-radius': ['step', ['get', 'point_count'], 14, 50, 18, 200, 22],
-    },
-  })
-  map.addLayer({
-    id: 'vessels-cluster-count',
-    type: 'symbol',
-    source: 'vessels',
-    filter: ['has', 'point_count'],
-    layout: {
-      'text-field': '{point_count_abbreviated}',
-      'text-font': ['DIN Pro Medium', 'Arial Unicode MS Bold'],
-      'text-size': 11,
-      'text-allow-overlap': true,
-    },
-    paint: { 'text-color': '#ffffff' },
-  })
-  // Individual vessel points
   map.addLayer({
     id: 'vessels-layer',
     type: 'circle',
     source: 'vessels',
-    filter: ['!', ['has', 'point_count']],
     paint: {
-      'circle-radius': ['case', ['get', 'selected'], 6, 3],
+      'circle-radius': ['case', ['get', 'selected'], 4, 2],
       'circle-color': VESSEL_COLOR,
       'circle-opacity': ['case', ['get', 'selected'], 1, 0.7],
-      'circle-stroke-width': ['case', ['get', 'selected'], 2, 0],
+      'circle-stroke-width': ['case', ['get', 'selected'], 1.5, 0],
       'circle-stroke-color': VESSEL_COLOR,
     },
   })
 
-  // --- Flights with clustering ---
+  // --- Flights ---
   map.addSource('flights', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
-    cluster: true,
-    clusterMaxZoom: 14,
-    clusterRadius: 50,
-  })
-  map.addLayer({
-    id: 'flights-cluster',
-    type: 'circle',
-    source: 'flights',
-    filter: ['has', 'point_count'],
-    paint: {
-      'circle-color': FLIGHT_COLOR,
-      'circle-opacity': 0.6,
-      'circle-radius': ['step', ['get', 'point_count'], 14, 50, 18, 200, 22],
-    },
-  })
-  map.addLayer({
-    id: 'flights-cluster-count',
-    type: 'symbol',
-    source: 'flights',
-    filter: ['has', 'point_count'],
-    layout: {
-      'text-field': '{point_count_abbreviated}',
-      'text-font': ['DIN Pro Medium', 'Arial Unicode MS Bold'],
-      'text-size': 11,
-      'text-allow-overlap': true,
-    },
-    paint: { 'text-color': '#ffffff' },
   })
   map.addLayer({
     id: 'flights-layer',
     type: 'circle',
     source: 'flights',
-    filter: ['!', ['has', 'point_count']],
     paint: {
-      'circle-radius': ['case', ['get', 'selected'], 6, 3],
+      'circle-radius': ['case', ['get', 'selected'], 4, 2],
       'circle-color': FLIGHT_COLOR,
       'circle-opacity': ['case', ['get', 'selected'], 1, 0.7],
-      'circle-stroke-width': ['case', ['get', 'selected'], 2, 0],
+      'circle-stroke-width': ['case', ['get', 'selected'], 1.5, 0],
       'circle-stroke-color': FLIGHT_COLOR,
     },
   })
@@ -582,200 +525,88 @@ function addEntityLayers(map: mapboxgl.Map) {
     },
   })
 
-  // --- Weather events with clustering ---
+  // --- Weather events ---
   map.addSource('weather-events', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
-    cluster: true,
-    clusterMaxZoom: 14,
-    clusterRadius: 50,
-  })
-  map.addLayer({
-    id: 'weather-events-cluster',
-    type: 'circle',
-    source: 'weather-events',
-    filter: ['has', 'point_count'],
-    paint: {
-      'circle-color': '#fb7185',
-      'circle-opacity': 0.6,
-      'circle-radius': ['step', ['get', 'point_count'], 14, 50, 18, 200, 22],
-    },
-  })
-  map.addLayer({
-    id: 'weather-events-cluster-count',
-    type: 'symbol',
-    source: 'weather-events',
-    filter: ['has', 'point_count'],
-    layout: {
-      'text-field': '{point_count_abbreviated}',
-      'text-font': ['DIN Pro Medium', 'Arial Unicode MS Bold'],
-      'text-size': 11,
-      'text-allow-overlap': true,
-    },
-    paint: { 'text-color': '#ffffff' },
   })
   map.addLayer({
     id: 'weather-events-layer',
     type: 'circle',
     source: 'weather-events',
-    filter: ['!', ['has', 'point_count']],
     paint: {
       'circle-radius': [
         'case',
-        ['get', 'selected'], 8,
+        ['get', 'selected'], 5,
         ['==', ['get', 'type'], 'earthquake'],
-        ['interpolate', ['linear'], ['coalesce', ['get', 'magnitude'], 2], 0, 3, 5, 8, 9, 12],
-        5,
+        ['interpolate', ['linear'], ['coalesce', ['get', 'magnitude'], 2], 0, 2, 5, 4, 9, 6],
+        3,
       ],
       'circle-color': ['get', 'color'],
       'circle-opacity': ['case', ['get', 'selected'], 1, 0.7],
-      'circle-stroke-width': ['case', ['get', 'selected'], 2, 0],
+      'circle-stroke-width': ['case', ['get', 'selected'], 1.5, 0],
       'circle-stroke-color': ['get', 'color'],
     },
   })
 
-  // --- News events with clustering ---
+  // --- News events ---
   map.addSource('news-events', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
-    cluster: true,
-    clusterMaxZoom: 14,
-    clusterRadius: 50,
-  })
-  map.addLayer({
-    id: 'news-events-cluster',
-    type: 'circle',
-    source: 'news-events',
-    filter: ['has', 'point_count'],
-    paint: {
-      'circle-color': '#fb7185',
-      'circle-opacity': 0.5,
-      'circle-radius': ['step', ['get', 'point_count'], 12, 50, 16, 200, 20],
-    },
-  })
-  map.addLayer({
-    id: 'news-events-cluster-count',
-    type: 'symbol',
-    source: 'news-events',
-    filter: ['has', 'point_count'],
-    layout: {
-      'text-field': '{point_count_abbreviated}',
-      'text-font': ['DIN Pro Medium', 'Arial Unicode MS Bold'],
-      'text-size': 10,
-      'text-allow-overlap': true,
-    },
-    paint: { 'text-color': '#ffffff' },
   })
   map.addLayer({
     id: 'news-events-layer',
     type: 'circle',
     source: 'news-events',
-    filter: ['!', ['has', 'point_count']],
     paint: {
-      'circle-radius': ['case', ['get', 'selected'], 7, 4],
+      'circle-radius': ['case', ['get', 'selected'], 4, 2],
       'circle-color': ['get', 'color'],
       'circle-opacity': ['case', ['get', 'selected'], 1, 0.6],
-      'circle-stroke-width': ['case', ['get', 'selected'], 2, 0],
+      'circle-stroke-width': ['case', ['get', 'selected'], 1.5, 0],
       'circle-stroke-color': ['get', 'color'],
     },
   })
 
-  // --- Conflict events with clustering ---
+  // --- Conflict events ---
   map.addSource('conflict-events', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
-    cluster: true,
-    clusterMaxZoom: 14,
-    clusterRadius: 50,
-  })
-  map.addLayer({
-    id: 'conflict-events-cluster',
-    type: 'circle',
-    source: 'conflict-events',
-    filter: ['has', 'point_count'],
-    paint: {
-      'circle-color': '#f87171',
-      'circle-opacity': 0.6,
-      'circle-radius': ['step', ['get', 'point_count'], 14, 50, 18, 200, 22],
-    },
-  })
-  map.addLayer({
-    id: 'conflict-events-cluster-count',
-    type: 'symbol',
-    source: 'conflict-events',
-    filter: ['has', 'point_count'],
-    layout: {
-      'text-field': '{point_count_abbreviated}',
-      'text-font': ['DIN Pro Medium', 'Arial Unicode MS Bold'],
-      'text-size': 11,
-      'text-allow-overlap': true,
-    },
-    paint: { 'text-color': '#ffffff' },
   })
   map.addLayer({
     id: 'conflict-events-layer',
     type: 'circle',
     source: 'conflict-events',
-    filter: ['!', ['has', 'point_count']],
     paint: {
       'circle-radius': [
         'case',
-        ['get', 'selected'], 8,
-        ['interpolate', ['linear'], ['coalesce', ['get', 'fatalities'], 0], 0, 4, 10, 7, 100, 12],
+        ['get', 'selected'], 5,
+        ['interpolate', ['linear'], ['coalesce', ['get', 'fatalities'], 0], 0, 2, 10, 4, 100, 6],
       ],
       'circle-color': ['get', 'color'],
       'circle-opacity': ['case', ['get', 'selected'], 1, 0.7],
-      'circle-stroke-width': ['case', ['get', 'selected'], 2, 0],
+      'circle-stroke-width': ['case', ['get', 'selected'], 1.5, 0],
       'circle-stroke-color': ['get', 'color'],
     },
   })
 
-  // --- Cyber events with clustering ---
+  // --- Cyber events ---
   map.addSource('cyber-events', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
-    cluster: true,
-    clusterMaxZoom: 14,
-    clusterRadius: 50,
-  })
-  map.addLayer({
-    id: 'cyber-events-cluster',
-    type: 'circle',
-    source: 'cyber-events',
-    filter: ['has', 'point_count'],
-    paint: {
-      'circle-color': '#c084fc',
-      'circle-opacity': 0.5,
-      'circle-radius': ['step', ['get', 'point_count'], 12, 50, 16, 200, 20],
-    },
-  })
-  map.addLayer({
-    id: 'cyber-events-cluster-count',
-    type: 'symbol',
-    source: 'cyber-events',
-    filter: ['has', 'point_count'],
-    layout: {
-      'text-field': '{point_count_abbreviated}',
-      'text-font': ['DIN Pro Medium', 'Arial Unicode MS Bold'],
-      'text-size': 10,
-      'text-allow-overlap': true,
-    },
-    paint: { 'text-color': '#ffffff' },
   })
   map.addLayer({
     id: 'cyber-events-layer',
     type: 'circle',
     source: 'cyber-events',
-    filter: ['!', ['has', 'point_count']],
     paint: {
       'circle-radius': [
         'case',
-        ['get', 'selected'], 7,
-        ['interpolate', ['linear'], ['coalesce', ['get', 'severity'], 1], 1, 3, 5, 6, 10, 10],
+        ['get', 'selected'], 4,
+        ['interpolate', ['linear'], ['coalesce', ['get', 'severity'], 1], 1, 2, 5, 3, 10, 5],
       ],
       'circle-color': ['get', 'color'],
       'circle-opacity': ['case', ['get', 'selected'], 1, 0.6],
-      'circle-stroke-width': ['case', ['get', 'selected'], 2, 0],
+      'circle-stroke-width': ['case', ['get', 'selected'], 1.5, 0],
       'circle-stroke-color': ['get', 'color'],
     },
   })
@@ -784,42 +615,16 @@ function addEntityLayers(map: mapboxgl.Map) {
   map.addSource('osint-posts', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
-    cluster: true,
-    clusterMaxZoom: 14,
-    clusterRadius: 50,
-  })
-  map.addLayer({
-    id: 'osint-posts-cluster',
-    type: 'circle',
-    source: 'osint-posts',
-    filter: ['has', 'point_count'],
-    paint: {
-      'circle-color': '#2dd4bf',
-      'circle-radius': ['step', ['get', 'point_count'], 10, 10, 15, 30, 20],
-      'circle-opacity': 0.6,
-    },
-  })
-  map.addLayer({
-    id: 'osint-posts-cluster-count',
-    type: 'symbol',
-    source: 'osint-posts',
-    filter: ['has', 'point_count'],
-    layout: {
-      'text-field': '{point_count_abbreviated}',
-      'text-size': 10,
-    },
-    paint: { 'text-color': '#ffffff' },
   })
   map.addLayer({
     id: 'osint-posts-layer',
     type: 'circle',
     source: 'osint-posts',
-    filter: ['!', ['has', 'point_count']],
     paint: {
-      'circle-radius': 4,
+      'circle-radius': 2,
       'circle-color': ['get', 'color'],
       'circle-opacity': 0.7,
-      'circle-stroke-width': 1,
+      'circle-stroke-width': 0.5,
       'circle-stroke-color': '#2dd4bf',
     },
   })
@@ -835,7 +640,7 @@ function addEntityLayers(map: mapboxgl.Map) {
     source: 'ports',
     minzoom: 4,
     paint: {
-      'circle-radius': ['match', ['get', 'size'], 'large', 5, 'medium', 3.5, 2.5],
+      'circle-radius': ['match', ['get', 'size'], 'large', 3, 'medium', 2, 1.5],
       'circle-color': ['get', 'color'],
       'circle-opacity': 0.7,
       'circle-stroke-width': 1,
@@ -865,7 +670,7 @@ function addEntityLayers(map: mapboxgl.Map) {
     source: 'rf-spots',
     filter: ['==', '$type', 'Point'],
     paint: {
-      'circle-radius': 3,
+      'circle-radius': 2,
       'circle-color': ['get', 'color'],
       'circle-opacity': 0.6,
     },
@@ -882,36 +687,35 @@ function addEntityLayers(map: mapboxgl.Map) {
     source: 'cameras',
     minzoom: 5,
     paint: {
-      'circle-radius': 4,
+      'circle-radius': 2,
       'circle-color': '#38bdf8',
       'circle-opacity': 0.7,
-      'circle-stroke-width': 1.5,
+      'circle-stroke-width': 1,
       'circle-stroke-color': '#0ea5e9',
     },
   })
 
-  // --- Economic indicators ---
-  map.addSource('economic', {
-    type: 'geojson',
-    data: { type: 'FeatureCollection', features: [] },
-  })
-  map.addLayer({
-    id: 'economic-layer',
-    type: 'circle',
-    source: 'economic',
-    paint: {
-      'circle-radius': ['interpolate', ['linear'], ['abs', ['coalesce', ['get', 'value'], 0]], 0, 4, 1e12, 14],
-      'circle-color': ['get', 'color'],
-      'circle-opacity': 0.5,
-      'circle-stroke-width': 1.5,
-      'circle-stroke-color': ['get', 'color'],
-      'circle-stroke-opacity': 0.8,
-    },
-  })
+  // --- Economic indicators (disabled) ---
+  // map.addSource('economic', {
+  //   type: 'geojson',
+  //   data: { type: 'FeatureCollection', features: [] },
+  // })
+  // map.addLayer({
+  //   id: 'economic-layer',
+  //   type: 'circle',
+  //   source: 'economic',
+  //   paint: {
+  //     'circle-radius': ['interpolate', ['linear'], ['abs', ['coalesce', ['get', 'value'], 0]], 0, 2, 1e12, 7],
+  //     'circle-color': ['get', 'color'],
+  //     'circle-opacity': 0.5,
+  //     'circle-stroke-width': 1,
+  //     'circle-stroke-color': ['get', 'color'],
+  //     'circle-stroke-opacity': 0.8,
+  //   },
+  // })
 }
 
-const ENTITY_LAYERS = ['satellites-layer', 'vessels-layer', 'flights-layer', 'weather-events-layer', 'news-events-layer', 'conflict-events-layer', 'cyber-events-layer', 'osint-posts-layer', 'ports-layer', 'rf-stations-layer', 'economic-layer', 'cameras-layer'] as const
-const CLUSTER_LAYERS = ['vessels-cluster', 'flights-cluster', 'weather-events-cluster', 'news-events-cluster', 'conflict-events-cluster', 'cyber-events-cluster', 'osint-posts-cluster'] as const
+const ENTITY_LAYERS = ['satellites-layer', 'vessels-layer', 'flights-layer', 'weather-events-layer', 'news-events-layer', 'conflict-events-layer', 'cyber-events-layer', 'osint-posts-layer', 'ports-layer', 'rf-stations-layer', 'cameras-layer'] as const
 
 export function MapboxGlobeView() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -954,9 +758,9 @@ export function MapboxGlobeView() {
   const rfSpots = useRFStore(s => s.spots)
   const rfVersion = useRFStore(s => s.version)
   const rfSourceToggles = useRFStore(s => s.sourceToggles)
-  const econIndicators = useEconomicStore(s => s.indicators)
-  const econVersion = useEconomicStore(s => s.version)
-  const selectedIndicator = useEconomicStore(s => s.selectedIndicator)
+  // const econIndicators = useEconomicStore(s => s.indicators)
+  // const econVersion = useEconomicStore(s => s.version)
+  // const selectedIndicator = useEconomicStore(s => s.selectedIndicator)
   const cameraData = useCameraStore(s => s.cameras)
   const cameraVersion = useCameraStore(s => s.version)
   const cameraVisible = useCameraStore(s => s.visible)
@@ -966,6 +770,7 @@ export function MapboxGlobeView() {
   const selectedNewsId = useSelectionStore(s => s.selectedNewsId)
   const selectedConflictId = useSelectionStore(s => s.selectedConflictId)
   const selectedCyberId = useSelectionStore(s => s.selectedCyberId)
+  const selectedRFId = useSelectionStore(s => s.selectedRFId)
   const timelineCursor = useAppStore(s => s.timelineCursor)
   const timelineLive = useAppStore(s => s.timelineLive)
 
@@ -1032,28 +837,12 @@ export function MapboxGlobeView() {
         useSelectionStore.getState().selectCyber(e.features[0].properties.cyberId)
       }
     })
-
-    // Cluster click → expand zoom
-    for (const clusterLayer of CLUSTER_LAYERS) {
-      const sourceId = clusterLayer.replace('-cluster', '')
-      map.on('click', clusterLayer, (e) => {
-        const features = map.queryRenderedFeatures(e.point, { layers: [clusterLayer] })
-        if (!features.length) return
-        const clusterId = features[0].properties?.cluster_id
-        if (clusterId == null) return
-        const src = map.getSource(sourceId) as mapboxgl.GeoJSONSource | undefined
-        if (!src) return
-        src.getClusterExpansionZoom(clusterId, (_err, zoom) => {
-          if (_err || zoom == null) return
-          const geom = features[0].geometry
-          if (geom.type === 'Point') {
-            map.easeTo({ center: geom.coordinates as [number, number], zoom })
-          }
-        })
-      })
-      map.on('mouseenter', clusterLayer, () => { map.getCanvas().style.cursor = 'pointer' })
-      map.on('mouseleave', clusterLayer, () => { map.getCanvas().style.cursor = '' })
-    }
+    map.on('click', 'rf-stations-layer', (e) => {
+      if (e.features?.[0]?.properties?.rfId) {
+        e.originalEvent.stopPropagation()
+        useSelectionStore.getState().selectRF(e.features[0].properties.rfId)
+      }
+    })
 
     map.on('click', (e) => {
       const features = map.queryRenderedFeatures(e.point, { layers: [...ENTITY_LAYERS] })
@@ -1170,7 +959,17 @@ export function MapboxGlobeView() {
         return
       }
     }
-  }, [selectedSatId, selectedMmsi, selectedIcao, selectedEventId, selectedNewsId, selectedConflictId, selectedCyberId, toggles, getPositions, vessels, flights, weatherEvents, newsEvents, conflictEvents, cyberEvents])
+
+    // RF spot selected
+    if (selectedRFId !== null) {
+      const spot = rfSpots.get(selectedRFId)
+      if (spot) {
+        map.flyTo({ center: [spot.rxLon, spot.rxLat], zoom: 5, duration: 1500 })
+        return
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSatId, selectedMmsi, selectedIcao, selectedEventId, selectedNewsId, selectedConflictId, selectedCyberId, selectedRFId, toggles, getPositions, vessels, flights, weatherEvents, newsEvents, conflictEvents, cyberEvents, rfSpots, vesselVersion, flightVersion, weatherVersion, newsVersion, conflictVersion, cyberVersion, rfVersion])
 
   // Use timeline cursor only when not live
   const cursorForFilter = timelineLive ? undefined : timelineCursor
@@ -1262,16 +1061,16 @@ export function MapboxGlobeView() {
     const map = mapRef.current
     if (!map || !layersReadyRef.current) return
     const src = map.getSource('rf-spots') as mapboxgl.GeoJSONSource | undefined
-    if (src) src.setData(buildRFGeoJSON(rfSpots, rfSourceToggles))
-  }, [rfVersion, rfSpots, rfSourceToggles])
+    if (src) src.setData(buildRFGeoJSON(rfSpots, rfSourceToggles, selectedRFId))
+  }, [rfVersion, rfSpots, rfSourceToggles, selectedRFId])
 
-  // Sync economic data
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !layersReadyRef.current) return
-    const src = map.getSource('economic') as mapboxgl.GeoJSONSource | undefined
-    if (src) src.setData(buildEconomicGeoJSON(econIndicators, selectedIndicator))
-  }, [econVersion, econIndicators, selectedIndicator])
+  // Sync economic data (disabled)
+  // useEffect(() => {
+  //   const map = mapRef.current
+  //   if (!map || !layersReadyRef.current) return
+  //   const src = map.getSource('economic') as mapboxgl.GeoJSONSource | undefined
+  //   if (src) src.setData(buildEconomicGeoJSON(econIndicators, selectedIndicator))
+  // }, [econVersion, econIndicators, selectedIndicator])
 
   // Sync camera data
   useEffect(() => {
@@ -1309,16 +1108,16 @@ export function MapboxGlobeView() {
       const portSrc = map.getSource('ports') as mapboxgl.GeoJSONSource | undefined
       if (portSrc) portSrc.setData(buildPortGeoJSON(portData, portVisible))
       const rfSrc = map.getSource('rf-spots') as mapboxgl.GeoJSONSource | undefined
-      if (rfSrc) rfSrc.setData(buildRFGeoJSON(rfSpots, rfSourceToggles))
-      const econSrc = map.getSource('economic') as mapboxgl.GeoJSONSource | undefined
-      if (econSrc) econSrc.setData(buildEconomicGeoJSON(econIndicators, selectedIndicator))
+      if (rfSrc) rfSrc.setData(buildRFGeoJSON(rfSpots, rfSourceToggles, selectedRFId))
+      // const econSrc = map.getSource('economic') as mapboxgl.GeoJSONSource | undefined
+      // if (econSrc) econSrc.setData(buildEconomicGeoJSON(econIndicators, selectedIndicator))
       const camSrc = map.getSource('cameras') as mapboxgl.GeoJSONSource | undefined
       if (camSrc) camSrc.setData(buildCameraGeoJSON(cameraData, cameraVisible))
     }
     map.on('style.load', syncAll)
     return () => { map.off('style.load', syncAll) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toggles, getPositions, selectedSatId, satVersion, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory, weatherEvents, selectedEventId, weatherVersion, weatherTypeToggles, newsEvents, selectedNewsId, newsVersion, newsCategoryToggles, conflictEvents, selectedConflictId, conflictVersion, conflictTypeToggles, cyberEvents, selectedCyberId, cyberVersion, cyberTypeToggles, osintPosts, osintVersion, osintPlatformToggles, portData, portVersion, portVisible, rfSpots, rfVersion, rfSourceToggles, econIndicators, econVersion, selectedIndicator, cameraData, cameraVersion, cameraVisible, cursorForFilter])
+  }, [toggles, getPositions, selectedSatId, satVersion, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory, weatherEvents, selectedEventId, weatherVersion, weatherTypeToggles, newsEvents, selectedNewsId, newsVersion, newsCategoryToggles, conflictEvents, selectedConflictId, conflictVersion, conflictTypeToggles, cyberEvents, selectedCyberId, cyberVersion, cyberTypeToggles, osintPosts, osintVersion, osintPlatformToggles, portData, portVersion, portVisible, rfSpots, rfVersion, rfSourceToggles, cameraData, cameraVersion, cameraVisible, cursorForFilter])
 
   return (
     <div className="fixed top-[46px] left-64 right-[272px] bottom-[34px]">

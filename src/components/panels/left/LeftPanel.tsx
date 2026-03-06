@@ -7,10 +7,10 @@ import { WeatherSection } from './WeatherSection'
 import { NewsSection } from './NewsSection'
 import { ConflictSection } from './ConflictSection'
 import { CyberSection } from './CyberSection'
-import { OsintSection } from './OsintSection'
+// import { OsintSection } from './OsintSection'
 import { PortSection } from './PortSection'
 import { RFSection } from './RFSection'
-import { EconomicSection } from './EconomicSection'
+// import { EconomicSection } from './EconomicSection'
 import { CameraSection } from './CameraSection'
 import { SearchResults } from './SearchResults'
 
@@ -50,10 +50,10 @@ export function LeftPanel() {
             <NewsSection expanded={expandedSections.has('news')} onToggle={() => toggleSection('news')} />
             <ConflictSection expanded={expandedSections.has('conflicts')} onToggle={() => toggleSection('conflicts')} />
             <CyberSection expanded={expandedSections.has('cyber')} onToggle={() => toggleSection('cyber')} />
-            <OsintSection />
+            {/* <OsintSection /> */}
             <PortSection expanded={expandedSections.has('ports')} onToggle={() => toggleSection('ports')} />
             <RFSection expanded={expandedSections.has('rf')} onToggle={() => toggleSection('rf')} />
-            <EconomicSection expanded={expandedSections.has('economic')} onToggle={() => toggleSection('economic')} />
+            {/* <EconomicSection expanded={expandedSections.has('economic')} onToggle={() => toggleSection('economic')} /> */}
             <CameraSection expanded={expandedSections.has('cameras')} onToggle={() => toggleSection('cameras')} />
           </>
         )}

@@ -27,6 +27,14 @@ export const useAlertStore = create<AlertState>()((set, get) => ({
   unacknowledgedCount: 0,
 
   addAlert: (alert) => {
+    // Deduplicate by domain + entityId (or title + description if no entityId)
+    const existing = get().alerts
+    if (alert.entityId) {
+      if (existing.some(a => a.domain === alert.domain && a.entityId === alert.entityId)) return
+    } else {
+      if (existing.some(a => a.title === alert.title && a.description === alert.description)) return
+    }
+
     const newAlert: AlertItem = {
       ...alert,
       id: `alert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

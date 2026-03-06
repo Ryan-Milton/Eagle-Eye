@@ -8,6 +8,7 @@ const CLEAR = {
   selectedNewsId: null,
   selectedConflictId: null,
   selectedCyberId: null,
+  selectedRFId: null,
 }
 
 interface SelectionState {
@@ -18,6 +19,7 @@ interface SelectionState {
   selectedNewsId: string | null
   selectedConflictId: string | null
   selectedCyberId: string | null
+  selectedRFId: string | null
   selectSatellite: (id: number | null) => void
   selectVessel: (mmsi: number | null) => void
   selectFlight: (icao: string | null) => void
@@ -25,6 +27,7 @@ interface SelectionState {
   selectNews: (id: string | null) => void
   selectConflict: (id: string | null) => void
   selectCyber: (id: string | null) => void
+  selectRF: (id: string | null) => void
   clearAll: () => void
 }
 
@@ -38,5 +41,6 @@ export const useSelectionStore = create<SelectionState>()((set) => ({
   selectNews: (id) => set(id !== null ? { ...CLEAR, selectedNewsId: id } : { selectedNewsId: null }),
   selectConflict: (id) => set(id !== null ? { ...CLEAR, selectedConflictId: id } : { selectedConflictId: null }),
   selectCyber: (id) => set(id !== null ? { ...CLEAR, selectedCyberId: id } : { selectedCyberId: null }),
+  selectRF: (id) => set(id !== null ? { ...CLEAR, selectedRFId: id } : { selectedRFId: null }),
   clearAll: () => set(CLEAR),
 }))
