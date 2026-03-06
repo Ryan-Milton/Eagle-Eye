@@ -1356,7 +1356,7 @@ export function MapboxGlobeView() {
                 <button
                   onClick={() => {
                     setVizMode(mode)
-                    setVizPopoverOpen(false)
+                    setVizPopoverOpen(mode === 'nvg' || mode === 'thermal')
                     if ((mode === 'nvg' || mode === 'thermal') && mapStyle !== 'dark') {
                       handleStyleChange('dark')
                     }
