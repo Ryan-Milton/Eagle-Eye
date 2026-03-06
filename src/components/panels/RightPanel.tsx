@@ -14,6 +14,7 @@ import { useAlertStore } from '@/stores/alert-store'
 import { AlertRuleEditor, AlertRuleList } from '@/components/ui/AlertRuleEditor'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/Tooltip'
 import { SourceBadge } from '@/components/ui/SourceBadge'
+import { useIncidents } from '@/hooks/useIncidents'
 import { useOsintStore } from '@/stores/osint-store'
 import { OsintModal } from '@/components/ui/OsintModal'
 import type { OsintPost } from '@/lib/osint-client'
@@ -219,6 +220,7 @@ function IntelligenceFeed() {
   const { selectEvent, selectConflict, selectCyber, selectVessel, selectFlight } = useSelectionStore()
   const [osintModalPost, setOsintModalPost] = useState<OsintPost | null>(null)
   const [showRuleEditor, setShowRuleEditor] = useState(false)
+  const incidents = useIncidents()
 
   const severityColor = (sev: string) => {
     if (sev === 'critical') return 'text-red-400 border-l-red-500'
@@ -307,6 +309,58 @@ function IntelligenceFeed() {
         )}
         <AlertRuleList />
       </div>
+
+      {/* Correlated incidents section */}
+      {incidents.length > 0 && (
+        <div className="border-b border-zinc-800">
+          <div className="px-3.5 py-2 border-b border-zinc-800 flex items-center gap-2">
+            <span className="font-display text-[11px] font-semibold tracking-[2px] text-amber-400 uppercase">Incidents</span>
+            <span className="font-mono text-[10px] text-zinc-600">{incidents.length}</span>
+          </div>
+          {incidents.slice(0, 10).map(inc => (
+            <div
+              key={inc.id}
+              className="px-3.5 py-2 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors"
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-[11px] font-medium text-zinc-300">
+                  {inc.events.length} events correlated
+                </span>
+                <span className="font-mono text-[9px] text-zinc-600">
+                  {inc.sourceCount} sources
+                </span>
+              </div>
+              <div className="flex items-center gap-1 mt-1 flex-wrap">
+                {inc.domains.map(d => (
+                  <span
+                    key={d}
+                    className={cn(
+                      'font-mono text-[8px] uppercase tracking-wider px-1 py-px rounded-sm border',
+                      d === 'conflict' ? 'text-red-400 border-red-800/60 bg-red-950/40'
+                        : d === 'weather' ? 'text-amber-400 border-amber-800/60 bg-amber-950/40'
+                        : d === 'cyber' ? 'text-purple-400 border-purple-800/60 bg-purple-950/40'
+                        : d === 'news' ? 'text-rose-400 border-rose-800/60 bg-rose-950/40'
+                        : 'text-zinc-400 border-zinc-700/60 bg-zinc-800/40',
+                    )}
+                  >
+                    {d}
+                  </span>
+                ))}
+              </div>
+              <div className="mt-1 space-y-0.5">
+                {inc.events.slice(0, 3).map(e => (
+                  <div key={`${e.domain}-${e.id}`} className="font-mono text-[10px] text-zinc-500 truncate">
+                    {e.title}
+                  </div>
+                ))}
+                {inc.events.length > 3 && (
+                  <div className="font-mono text-[10px] text-zinc-600">+{inc.events.length - 3} more</div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* OSINT feed section */}
       <div>
