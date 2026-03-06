@@ -43,7 +43,7 @@ type VizMode = 'standard' | 'nvg' | 'thermal' | 'crt'
 const VIZ_MODE_FILTERS: Record<VizMode, string> = {
   standard: 'none',
   nvg: 'brightness(1.6) contrast(1.3) saturate(0.3) sepia(1) hue-rotate(70deg) saturate(2.5)',
-  thermal: 'grayscale(1) brightness(0.6) contrast(2.5) sepia(0.6) hue-rotate(-10deg) saturate(3)',
+  thermal: 'grayscale(1) brightness(1.1) contrast(1.4) sepia(0.5) hue-rotate(-10deg) saturate(2)',
   crt: 'contrast(1.15) brightness(0.9) saturate(1.2)',
 }
 
@@ -1294,28 +1294,14 @@ export function MapboxGlobeView() {
         </>
       )}
 
-      {/* Thermal FLIR overlay — targeting reticle + vignette */}
+      {/* Thermal FLIR vignette */}
       {vizMode === 'thermal' && (
-        <>
-          <div
-            className="absolute inset-0 pointer-events-none z-10"
-            style={{
-              background: 'radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.5) 100%)',
-            }}
-          />
-          {/* FLIR crosshair reticle */}
-          <div className="absolute inset-0 pointer-events-none z-10 flex items-center justify-center">
-            <div className="relative w-16 h-16">
-              <div className="absolute top-1/2 left-0 w-full h-px bg-amber-500/30" />
-              <div className="absolute left-1/2 top-0 h-full w-px bg-amber-500/30" />
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 border border-amber-500/25 rounded-full" />
-            </div>
-          </div>
-          {/* FLIR HUD text */}
-          <div className="absolute top-16 right-72 pointer-events-none z-10 font-mono text-[10px] text-amber-500/50 tracking-widest">
-            FLIR · WHT HOT · 1X
-          </div>
-        </>
+        <div
+          className="absolute inset-0 pointer-events-none z-10"
+          style={{
+            background: 'radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.35) 100%)',
+          }}
+        />
       )}
 
       {/* Map style toggle */}
