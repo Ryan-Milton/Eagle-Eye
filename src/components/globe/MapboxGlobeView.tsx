@@ -1320,7 +1320,7 @@ export function MapboxGlobeView() {
               key={style}
               onClick={() => handleStyleChange(style)}
               className={cn(
-                'px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors',
+                'w-16 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors text-center',
                 mapStyle === style
                   ? 'bg-orange-500/20 text-orange-400'
                   : 'text-zinc-500 hover:text-zinc-300',
