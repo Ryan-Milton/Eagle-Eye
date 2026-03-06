@@ -11,6 +11,10 @@ import { BottomBar } from '@/components/panels/BottomBar'
 import { LeftPanel } from '@/components/panels/left/LeftPanel'
 import { RightPanel } from '@/components/panels/RightPanel'
 import { MapboxGlobeView } from '@/components/globe/MapboxGlobeView'
+import { ObjectsView } from '@/components/views/ObjectsView'
+import { GraphView } from '@/components/views/GraphView'
+import { SignalsView } from '@/components/views/SignalsView'
+import { ReportsView } from '@/components/views/ReportsView'
 
 export default function App() {
   useSatelliteInit()
@@ -28,6 +32,10 @@ export default function App() {
       <TopBar />
       <LeftPanel />
       {activeView === 'Globe' && <MapboxGlobeView />}
+      {activeView === 'Objects' && <ObjectsView />}
+      {activeView === 'Graph' && <GraphView />}
+      {activeView === 'Signals' && <SignalsView />}
+      {activeView === 'Reports' && <ReportsView />}
       <RightPanel />
       <BottomBar />
     </div>
