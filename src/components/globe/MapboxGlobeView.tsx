@@ -42,9 +42,9 @@ type VizMode = 'standard' | 'nvg' | 'thermal' | 'crt'
 
 const VIZ_MODE_FILTERS: Record<VizMode, string> = {
   standard: 'none',
-  nvg: 'hue-rotate(120deg) saturate(3) brightness(0.7) contrast(1.4)',
-  thermal: 'invert(0.9) hue-rotate(180deg) saturate(1.5) contrast(1.2)',
-  crt: 'contrast(1.1) brightness(0.95)',
+  nvg: 'brightness(1.6) contrast(1.3) saturate(0.3) sepia(1) hue-rotate(70deg) saturate(2.5)',
+  thermal: 'grayscale(1) contrast(1.6) brightness(1.3) invert(1) sepia(0.4) hue-rotate(-30deg) saturate(2)',
+  crt: 'contrast(1.15) brightness(0.9) saturate(1.2)',
 }
 
 const FOG_CONFIGS: Record<MapStyle, mapboxgl.FogSpecification> = {
@@ -1258,23 +1258,48 @@ export function MapboxGlobeView() {
         style={{ filter: filterStyle }}
       />
 
-      {/* CRT scanline overlay */}
+      {/* CRT scanline + phosphor overlay */}
       {vizMode === 'crt' && (
-        <div
-          className="absolute inset-0 pointer-events-none z-10"
-          style={{
-            background: 'repeating-linear-gradient(0deg, rgba(0,0,0,0.15) 0px, rgba(0,0,0,0.15) 1px, transparent 1px, transparent 3px)',
-            mixBlendMode: 'multiply',
-          }}
-        />
+        <>
+          <div
+            className="absolute inset-0 pointer-events-none z-10"
+            style={{
+              background: 'repeating-linear-gradient(0deg, rgba(0,0,0,0.25) 0px, rgba(0,0,0,0.25) 2px, transparent 2px, transparent 6px)',
+            }}
+          />
+          <div
+            className="absolute inset-0 pointer-events-none z-10"
+            style={{
+              background: 'radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.5) 100%)',
+            }}
+          />
+        </>
       )}
 
-      {/* NVG vignette overlay */}
+      {/* NVG green phosphor + vignette overlay */}
       {vizMode === 'nvg' && (
+        <>
+          <div
+            className="absolute inset-0 pointer-events-none z-10"
+            style={{
+              background: 'radial-gradient(ellipse at center, rgba(0,255,0,0.03) 0%, rgba(0,40,0,0.15) 60%, rgba(0,10,0,0.7) 100%)',
+            }}
+          />
+          <div
+            className="absolute inset-0 pointer-events-none z-10"
+            style={{
+              background: 'repeating-linear-gradient(0deg, rgba(0,0,0,0.06) 0px, transparent 1px, transparent 2px)',
+            }}
+          />
+        </>
+      )}
+
+      {/* Thermal edge glow */}
+      {vizMode === 'thermal' && (
         <div
           className="absolute inset-0 pointer-events-none z-10"
           style={{
-            background: 'radial-gradient(ellipse at center, transparent 50%, rgba(0,20,0,0.6) 100%)',
+            background: 'radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.3) 100%)',
           }}
         />
       )}
