@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils'
 import { NEWS_CATEGORIES, NEWS_CATEGORY_LABELS } from '@/types'
 import type { NewsEvent, NewsCategory } from '@/types'
 import { NEWS_CATEGORY_COLORS, NEWS_CATEGORY_DOT_COLORS } from '@/lib/colors'
+import { SourceBadge } from '@/components/ui/SourceBadge'
 import { useNewsStore } from '@/stores/news-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { MasterToggle, TypeToggle } from './shared'
@@ -112,7 +113,7 @@ export function NewsSection({ expanded, onToggle }: { expanded: boolean; onToggl
                           <div className="flex-1 min-w-0">
                             <div className="font-mono text-[11px] text-zinc-400 truncate">{event.title}</div>
                             <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="font-mono text-[10px] text-zinc-600">{event.source}</span>
+                              <SourceBadge source={event.source} />
                               {event.tone < -3 && <span className="font-mono text-[9px] text-red-400">NEG</span>}
                               {event.tone > 3 && <span className="font-mono text-[9px] text-green-400">POS</span>}
                             </div>

@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils'
 import { CYBER_EVENT_TYPES, CYBER_EVENT_LABELS } from '@/types'
 import type { CyberEvent, CyberEventType } from '@/types'
 import { CYBER_TYPE_COLORS, CYBER_TYPE_DOT_COLORS } from '@/lib/colors'
+import { SourceBadge } from '@/components/ui/SourceBadge'
 import { useCyberStore } from '@/stores/cyber-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { MasterToggle, TypeToggle } from './shared'
@@ -118,6 +119,7 @@ export function CyberSection({ expanded, onToggle }: { expanded: boolean; onTogg
                               )}>
                                 {event.type}
                               </span>
+                              <SourceBadge source={event.source} />
                               <span className="font-mono text-[10px] text-zinc-600">sev {event.severity}</span>
                             </div>
                           </div>

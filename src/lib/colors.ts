@@ -131,6 +131,51 @@ export const RF_SOURCE_DOT_COLORS: Record<string, string> = {
   psk: '#a78bfa', rbn: '#c084fc', satnogs: '#e879f9',
 }
 
+// ─── Source Attribution ──────────────────────────────────────────────────
+
+export const SOURCE_COLORS: Record<string, string> = {
+  // Weather
+  usgs: 'text-amber-400 border-amber-800/60 bg-amber-950/40',
+  eonet: 'text-sky-400 border-sky-800/60 bg-sky-950/40',
+  nws: 'text-blue-400 border-blue-800/60 bg-blue-950/40',
+  // Conflicts
+  acled: 'text-red-400 border-red-800/60 bg-red-950/40',
+  ucdp: 'text-rose-400 border-rose-800/60 bg-rose-950/40',
+  gdelt: 'text-pink-400 border-pink-800/60 bg-pink-950/40',
+  // Cyber
+  abuseipdb: 'text-purple-400 border-purple-800/60 bg-purple-950/40',
+  ioda: 'text-orange-400 border-orange-800/60 bg-orange-950/40',
+  // Maritime
+  aisstream: 'text-cyan-400 border-cyan-800/60 bg-cyan-950/40',
+  // Aviation
+  opensky: 'text-yellow-400 border-yellow-800/60 bg-yellow-950/40',
+  // Satellites
+  celestrak: 'text-indigo-400 border-indigo-800/60 bg-indigo-950/40',
+  // Ports
+  wpi: 'text-blue-400 border-blue-800/60 bg-blue-950/40',
+}
+
+export const SOURCE_LABELS: Record<string, string> = {
+  usgs: 'USGS',
+  eonet: 'EONET',
+  nws: 'NWS',
+  acled: 'ACLED',
+  ucdp: 'UCDP',
+  gdelt: 'GDELT',
+  abuseipdb: 'AbuseIPDB',
+  ioda: 'IODA',
+  aisstream: 'AISStream',
+  opensky: 'OpenSky',
+  celestrak: 'CelesTrak',
+  wpi: 'WPI',
+  psk: 'PSK Reporter',
+  rbn: 'RBN',
+  satnogs: 'SatNOGS',
+  reddit: 'Reddit',
+  mastodon: 'Mastodon',
+  bluesky: 'Bluesky',
+}
+
 // ─── Economic ────────────────────────────────────────────────────────────
 
 export const ECONOMIC_INDICATOR_COLORS: Record<string, string> = {

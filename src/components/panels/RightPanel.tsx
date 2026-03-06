@@ -13,6 +13,7 @@ import { useRFStore } from '@/stores/rf-store'
 import { useAlertStore } from '@/stores/alert-store'
 import { AlertRuleEditor, AlertRuleList } from '@/components/ui/AlertRuleEditor'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/Tooltip'
+import { SourceBadge } from '@/components/ui/SourceBadge'
 import { useOsintStore } from '@/stores/osint-store'
 import { OsintModal } from '@/components/ui/OsintModal'
 import type { OsintPost } from '@/lib/osint-client'
@@ -373,7 +374,7 @@ function NewsDetail({ event, nearby }: { event: NewsEvent; nearby: CorrelatedEnt
       <div className="px-3.5 py-3 border-b border-zinc-800">
         <div className="font-display text-sm font-bold tracking-wide text-zinc-50">{event.title}</div>
         <div className="flex items-center gap-2 mt-1.5">
-          <span className="font-mono text-[12px] text-zinc-500">{event.source}</span>
+          <SourceBadge source={event.source} />
           <span className={cn(
             'font-display text-[13px] font-semibold tracking-[1px] uppercase px-1.5 py-0.5 rounded-sm border',
             NEWS_CATEGORY_COLORS[event.category] || NEWS_CATEGORY_COLORS.other,
@@ -417,7 +418,7 @@ function ConflictDetail({ event, nearby }: { event: ConflictEvent; nearby: Corre
       <div className="px-3.5 py-3 border-b border-zinc-800">
         <div className="font-display text-sm font-bold tracking-wide text-zinc-50">{event.title}</div>
         <div className="flex items-center gap-2 mt-1.5">
-          <span className="font-mono text-[12px] text-zinc-500">{event.source.toUpperCase()}</span>
+          <SourceBadge source={event.source} />
           <span className={cn(
             'font-display text-[13px] font-semibold tracking-[1px] uppercase px-1.5 py-0.5 rounded-sm border',
             CONFLICT_TYPE_COLORS[event.type] || CONFLICT_TYPE_COLORS.violence,
@@ -468,7 +469,7 @@ function CyberDetail({ event, nearby }: { event: CyberEvent; nearby: CorrelatedE
       <div className="px-3.5 py-3 border-b border-zinc-800">
         <div className="font-display text-sm font-bold tracking-wide text-zinc-50">{event.title}</div>
         <div className="flex items-center gap-2 mt-1.5">
-          <span className="font-mono text-[12px] text-zinc-500">{event.source.toUpperCase()}</span>
+          <SourceBadge source={event.source} />
           <span className={cn(
             'font-display text-[13px] font-semibold tracking-[1px] uppercase px-1.5 py-0.5 rounded-sm border',
             CYBER_TYPE_COLORS[event.type] || CYBER_TYPE_COLORS.vulnerability,
@@ -515,10 +516,7 @@ function RFDetail({ spot, nearby }: { spot: RFSpot; nearby: CorrelatedEntity[] }
         <div className="font-display text-sm font-bold tracking-wide text-zinc-50">{spot.txCall} → {spot.rxCall}</div>
         <div className="flex items-center gap-2 mt-1.5">
           <span className="font-mono text-[12px] text-zinc-500">{spot.mode}</span>
-          <span className={cn(
-            'font-display text-[13px] font-semibold tracking-[1px] uppercase px-1.5 py-0.5 rounded-sm border',
-            RF_SOURCE_COLORS[spot.source] || 'text-violet-400 border-violet-800/60 bg-violet-950/40',
-          )}>{spot.source}</span>
+          <SourceBadge source={spot.source} />
         </div>
       </div>
 
@@ -584,7 +582,7 @@ function WeatherEventDetail({ event, nearby }: { event: WeatherEvent; nearby: Co
       <div className="px-3.5 py-3 border-b border-zinc-800">
         <div className="font-display text-sm font-bold tracking-wide text-zinc-50">{event.title}</div>
         <div className="flex items-center gap-2 mt-1.5">
-          <span className="font-mono text-[12px] text-zinc-500">{event.source.toUpperCase()}</span>
+          <SourceBadge source={event.source} />
           <span className={cn(
             'font-display text-[13px] font-semibold tracking-[1px] uppercase px-1.5 py-0.5 rounded-sm border',
             WEATHER_TYPE_COLORS[event.type] || WEATHER_TYPE_COLORS.alert,

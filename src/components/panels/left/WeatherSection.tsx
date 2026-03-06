@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils'
 import { WEATHER_EVENT_TYPES, WEATHER_EVENT_LABELS } from '@/types'
 import type { WeatherEvent, WeatherEventType } from '@/types'
 import { WEATHER_TYPE_COLORS, WEATHER_TYPE_DOT_COLORS } from '@/lib/colors'
+import { SourceBadge } from '@/components/ui/SourceBadge'
 import { useWeatherStore } from '@/stores/weather-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { MasterToggle, TypeToggle } from './shared'
@@ -120,7 +121,7 @@ export function WeatherSection({ expanded, onToggle }: { expanded: boolean; onTo
                                   M{event.magnitude.toFixed(1)}
                                 </span>
                               )}
-                              <span className="font-mono text-[10px] text-zinc-600">{event.source.toUpperCase()}</span>
+                              <SourceBadge source={event.source} />
                             </div>
                           </div>
                           <div className="flex flex-col items-end flex-shrink-0">

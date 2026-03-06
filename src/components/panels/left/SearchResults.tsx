@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { CONSTELLATIONS } from '@/data/constellations'
 import { VESSEL_TYPE_COLORS, FLIGHT_TYPE_COLORS, WEATHER_TYPE_COLORS, WEATHER_TYPE_DOT_COLORS, NEWS_CATEGORY_COLORS, NEWS_CATEGORY_DOT_COLORS, CONFLICT_TYPE_COLORS, CONFLICT_TYPE_DOT_COLORS, CYBER_TYPE_COLORS } from '@/lib/colors'
+import { SourceBadge } from '@/components/ui/SourceBadge'
 import { useSatelliteStore } from '@/stores/satellite-store'
 import { useVesselStore } from '@/stores/vessel-store'
 import { useFlightStore } from '@/stores/flight-store'
@@ -220,7 +221,7 @@ export function SearchResults({ query }: { query: string }) {
                 <div className="flex-1 min-w-0">
                   <div className="font-mono text-[11px] text-zinc-400 truncate">{event.title}</div>
                   <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="font-mono text-[10px] text-zinc-600">{event.source.toUpperCase()}</span>
+                    <SourceBadge source={event.source} />
                     <span className={cn(
                       'font-display text-[9px] font-semibold tracking-[0.5px] uppercase px-1 py-px rounded-sm border',
                       WEATHER_TYPE_COLORS[event.type] || WEATHER_TYPE_COLORS.alert,
