@@ -94,3 +94,15 @@ export const CYBER_TYPE_DOT_COLORS: Record<string, string> = {
   ddos: '#f87171', scan: '#facc15', malware: '#fb7185',
   outage: '#fb923c', vulnerability: '#c084fc',
 }
+
+// ─── OSINT ────────────────────────────────────────────────────────────────
+
+export const OSINT_PLATFORM_COLORS: Record<string, string> = {
+  reddit: 'text-orange-400 border-orange-800/60 bg-orange-950/40',
+  mastodon: 'text-indigo-400 border-indigo-800/60 bg-indigo-950/40',
+  bluesky: 'text-sky-400 border-sky-800/60 bg-sky-950/40',
+}
+
+export const OSINT_PLATFORM_DOT_COLORS: Record<string, string> = {
+  reddit: '#fb923c', mastodon: '#818cf8', bluesky: '#38bdf8',
+}

@@ -7,6 +7,7 @@ import { useWeatherStore } from '@/stores/weather-store'
 import { useNewsStore } from '@/stores/news-store'
 import { useConflictStore } from '@/stores/conflict-store'
 import { useCyberStore } from '@/stores/cyber-store'
+import { useOsintStore } from '@/stores/osint-store'
 import { useAlertStore } from '@/stores/alert-store'
 
 export function ReportsView() {
@@ -19,12 +20,13 @@ export function ReportsView() {
   const newsCount = useNewsStore(s => s.count)
   const conflictCount = useConflictStore(s => s.count)
   const cyberCount = useCyberStore(s => s.count)
+  const osintCount = useOsintStore(s => s.count)
   const alerts = useAlertStore(s => s.alerts)
   const unackCount = useAlertStore(s => s.unacknowledgedCount)
 
   const now = new Date()
   const report = useMemo(() => {
-    const totalEntities = satStats.enabledCount + vesselCount + flightCount + weatherCount + newsCount + conflictCount + cyberCount
+    const totalEntities = satStats.enabledCount + vesselCount + flightCount + weatherCount + newsCount + conflictCount + cyberCount + osintCount
     const criticalAlerts = alerts.filter(a => a.severity === 'critical').length
 
     return {
@@ -34,7 +36,7 @@ export function ReportsView() {
       sections: [
         {
           title: 'Executive Summary',
-          content: `Eagle Eye is currently tracking ${totalEntities.toLocaleString()} entities across 7 intelligence domains. ${criticalAlerts > 0 ? `There are ${criticalAlerts} critical alerts requiring immediate attention.` : 'No critical alerts at this time.'} All primary data feeds are ${vesselConnected && flightConnected ? 'operational' : 'partially degraded'}.`,
+          content: `Eagle Eye is currently tracking ${totalEntities.toLocaleString()} entities across 8 intelligence domains. ${criticalAlerts > 0 ? `There are ${criticalAlerts} critical alerts requiring immediate attention.` : 'No critical alerts at this time.'} All primary data feeds are ${vesselConnected && flightConnected ? 'operational' : 'partially degraded'}.`,
         },
         {
           title: 'Space Domain',
@@ -65,13 +67,17 @@ export function ReportsView() {
           content: `${cyberCount} cyber threat indicators from AbuseIPDB and IODA. Monitoring DDoS attacks, network scans, malware distribution, internet outages, and vulnerabilities.`,
         },
         {
+          title: 'Social Media OSINT',
+          content: `${osintCount} geolocated social media posts from Reddit, Mastodon, and Bluesky. Location extraction via named entity matching. 5-minute polling cycle.`,
+        },
+        {
           title: 'Active Alerts',
           content: `${alerts.length} total alerts (${unackCount} unacknowledged). ${criticalAlerts} critical, ${alerts.filter(a => a.severity === 'warning').length} warnings, ${alerts.filter(a => a.severity === 'info').length} informational.`,
         },
       ],
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [satStats, vesselCount, flightCount, weatherCount, newsCount, conflictCount, cyberCount, alerts.length])
+  }, [satStats, vesselCount, flightCount, weatherCount, newsCount, conflictCount, cyberCount, osintCount, alerts.length])
 
   const handleExportMarkdown = useCallback(() => {
     let md = `# Eagle Eye Situational Awareness Report\n\n`
@@ -116,7 +122,7 @@ export function ReportsView() {
             </div>
             <div>
               <div className="font-mono text-[10px] text-zinc-500 uppercase">Active Domains</div>
-              <div className="font-mono text-xl font-bold text-green-400">7</div>
+              <div className="font-mono text-xl font-bold text-green-400">8</div>
             </div>
             <div>
               <div className="font-mono text-[10px] text-zinc-500 uppercase">Alerts</div>

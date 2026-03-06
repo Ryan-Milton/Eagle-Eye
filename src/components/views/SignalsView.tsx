@@ -5,6 +5,7 @@ import { useWeatherStore } from '@/stores/weather-store'
 import { useNewsStore } from '@/stores/news-store'
 import { useConflictStore } from '@/stores/conflict-store'
 import { useCyberStore } from '@/stores/cyber-store'
+import { useOsintStore } from '@/stores/osint-store'
 import { useAlertStore } from '@/stores/alert-store'
 
 function StatCard({ label, value, color }: { label: string; value: string | number; color: string }) {
@@ -47,10 +48,11 @@ export function SignalsView() {
   const newsCount = useNewsStore(s => s.count)
   const conflictCount = useConflictStore(s => s.count)
   const cyberCount = useCyberStore(s => s.count)
+  const osintCount = useOsintStore(s => s.count)
   const alertCount = useAlertStore(s => s.alerts.length)
   const unackCount = useAlertStore(s => s.unacknowledgedCount)
 
-  const totalEntities = satStats.enabledCount + vesselCount + flightCount + weatherCount + newsCount + conflictCount + cyberCount
+  const totalEntities = satStats.enabledCount + vesselCount + flightCount + weatherCount + newsCount + conflictCount + cyberCount + osintCount
 
   const domainData = [
     { label: 'SAT', value: satStats.enabledCount, color: '#f97316' },
@@ -60,6 +62,7 @@ export function SignalsView() {
     { label: 'NEWS', value: newsCount, color: '#fb7185' },
     { label: 'CON', value: conflictCount, color: '#f87171' },
     { label: 'CYB', value: cyberCount, color: '#c084fc' },
+    { label: 'OSINT', value: osintCount, color: '#2dd4bf' },
   ]
 
   return (
@@ -69,7 +72,7 @@ export function SignalsView() {
       {/* Top stats */}
       <div className="grid grid-cols-4 gap-3 mb-4">
         <StatCard label="Total Entities" value={totalEntities.toLocaleString()} color="text-orange-400" />
-        <StatCard label="Active Sources" value={`${domainData.filter(d => d.value > 0).length}/7`} color="text-green-400" />
+        <StatCard label="Active Sources" value={`${domainData.filter(d => d.value > 0).length}/8`} color="text-green-400" />
         <StatCard label="Alerts" value={alertCount} color="text-yellow-400" />
         <StatCard label="Unacknowledged" value={unackCount} color={unackCount > 0 ? 'text-red-400' : 'text-zinc-400'} />
       </div>

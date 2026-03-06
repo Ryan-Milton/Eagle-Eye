@@ -11,12 +11,14 @@ import { useWeatherStore } from '@/stores/weather-store'
 import { useNewsStore } from '@/stores/news-store'
 import { useConflictStore } from '@/stores/conflict-store'
 import { useCyberStore } from '@/stores/cyber-store'
+import { useOsintStore } from '@/stores/osint-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { useAppStore } from '@/stores/app-store'
-import { WEATHER_TYPE_DOT_COLORS, NEWS_CATEGORY_DOT_COLORS, CONFLICT_TYPE_DOT_COLORS, CYBER_TYPE_DOT_COLORS } from '@/lib/colors'
+import { WEATHER_TYPE_DOT_COLORS, NEWS_CATEGORY_DOT_COLORS, CONFLICT_TYPE_DOT_COLORS, CYBER_TYPE_DOT_COLORS, OSINT_PLATFORM_DOT_COLORS } from '@/lib/colors'
 import { CoordinateHUD } from './CoordinateHUD'
 import { MeasurementTool } from './MeasurementTool'
-import type { ConstellationId, SatellitePosition, VesselRecord, FlightRecord, VesselType, FlightType, WeatherEvent, WeatherEventType, NewsEvent, NewsCategory, ConflictEvent, ConflictEventType, CyberEvent, CyberEventType } from '@/types'
+import type { ConstellationId, SatellitePosition, VesselRecord, FlightRecord, VesselType, FlightType, WeatherEvent, WeatherEventType, NewsEvent, NewsCategory, ConflictEvent, ConflictEventType, CyberEvent, CyberEventType, OsintPlatform } from '@/types'
+import type { OsintPost } from '@/lib/osint-client'
 import type { PositionHistory } from '@/lib/position-history'
 
 type MapStyle = 'dark' | 'light'
@@ -274,6 +276,29 @@ function buildCyberGeoJSON(
         selected: id === selectedCyberId,
         severity: e.severity,
         type: e.type,
+      },
+    })
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+function buildOsintGeoJSON(
+  posts: Map<string, OsintPost>,
+  platformToggles: Map<OsintPlatform, boolean>,
+  timelineCursor?: number,
+): GeoJSONFeatureCollection {
+  const features: GeoJSON.Feature<GeoJSON.Point>[] = []
+  for (const [id, p] of posts) {
+    if (platformToggles.get(p.platform) === false) continue
+    if (timelineCursor && p.lastUpdate > timelineCursor) continue
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+      properties: {
+        osintId: id,
+        color: OSINT_PLATFORM_DOT_COLORS[p.platform] ?? '#2dd4bf',
+        platform: p.platform,
+        text: p.text.slice(0, 60),
       },
     })
   }
@@ -651,10 +676,54 @@ function addEntityLayers(map: mapboxgl.Map) {
       'circle-stroke-color': ['get', 'color'],
     },
   })
+
+  // --- OSINT posts ---
+  map.addSource('osint-posts', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+    cluster: true,
+    clusterMaxZoom: 14,
+    clusterRadius: 50,
+  })
+  map.addLayer({
+    id: 'osint-posts-cluster',
+    type: 'circle',
+    source: 'osint-posts',
+    filter: ['has', 'point_count'],
+    paint: {
+      'circle-color': '#2dd4bf',
+      'circle-radius': ['step', ['get', 'point_count'], 10, 10, 15, 30, 20],
+      'circle-opacity': 0.6,
+    },
+  })
+  map.addLayer({
+    id: 'osint-posts-cluster-count',
+    type: 'symbol',
+    source: 'osint-posts',
+    filter: ['has', 'point_count'],
+    layout: {
+      'text-field': '{point_count_abbreviated}',
+      'text-size': 10,
+    },
+    paint: { 'text-color': '#ffffff' },
+  })
+  map.addLayer({
+    id: 'osint-posts-layer',
+    type: 'circle',
+    source: 'osint-posts',
+    filter: ['!', ['has', 'point_count']],
+    paint: {
+      'circle-radius': 4,
+      'circle-color': ['get', 'color'],
+      'circle-opacity': 0.7,
+      'circle-stroke-width': 1,
+      'circle-stroke-color': '#2dd4bf',
+    },
+  })
 }
 
-const ENTITY_LAYERS = ['satellites-layer', 'vessels-layer', 'flights-layer', 'weather-events-layer', 'news-events-layer', 'conflict-events-layer', 'cyber-events-layer'] as const
-const CLUSTER_LAYERS = ['vessels-cluster', 'flights-cluster', 'weather-events-cluster', 'news-events-cluster', 'conflict-events-cluster', 'cyber-events-cluster'] as const
+const ENTITY_LAYERS = ['satellites-layer', 'vessels-layer', 'flights-layer', 'weather-events-layer', 'news-events-layer', 'conflict-events-layer', 'cyber-events-layer', 'osint-posts-layer'] as const
+const CLUSTER_LAYERS = ['vessels-cluster', 'flights-cluster', 'weather-events-cluster', 'news-events-cluster', 'conflict-events-cluster', 'cyber-events-cluster', 'osint-posts-cluster'] as const
 
 export function MapboxGlobeView() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -688,6 +757,9 @@ export function MapboxGlobeView() {
   const cyberEvents = useCyberStore(s => s.events)
   const cyberVersion = useCyberStore(s => s.version)
   const cyberTypeToggles = useCyberStore(s => s.typeToggles)
+  const osintPosts = useOsintStore(s => s.posts)
+  const osintVersion = useOsintStore(s => s.version)
+  const osintPlatformToggles = useOsintStore(s => s.platformToggles)
   const selectedMmsi = useSelectionStore(s => s.selectedMmsi)
   const selectedIcao = useSelectionStore(s => s.selectedIcao)
   const selectedEventId = useSelectionStore(s => s.selectedEventId)
@@ -969,6 +1041,14 @@ export function MapboxGlobeView() {
     if (src) src.setData(buildCyberGeoJSON(cyberEvents, selectedCyberId, cyberTypeToggles, cursorForFilter))
   }, [cyberVersion, cyberEvents, selectedCyberId, cyberTypeToggles, cursorForFilter])
 
+  // Sync OSINT data
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+    const src = map.getSource('osint-posts') as mapboxgl.GeoJSONSource | undefined
+    if (src) src.setData(buildOsintGeoJSON(osintPosts, osintPlatformToggles, cursorForFilter))
+  }, [osintVersion, osintPosts, osintPlatformToggles, cursorForFilter])
+
   // Sync all data after style change
   useEffect(() => {
     const map = mapRef.current
@@ -992,11 +1072,13 @@ export function MapboxGlobeView() {
       if (conflictSrc) conflictSrc.setData(buildConflictGeoJSON(conflictEvents, selectedConflictId, conflictTypeToggles, cursorForFilter))
       const cyberSrc = map.getSource('cyber-events') as mapboxgl.GeoJSONSource | undefined
       if (cyberSrc) cyberSrc.setData(buildCyberGeoJSON(cyberEvents, selectedCyberId, cyberTypeToggles, cursorForFilter))
+      const osintSrc = map.getSource('osint-posts') as mapboxgl.GeoJSONSource | undefined
+      if (osintSrc) osintSrc.setData(buildOsintGeoJSON(osintPosts, osintPlatformToggles, cursorForFilter))
     }
     map.on('style.load', syncAll)
     return () => { map.off('style.load', syncAll) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toggles, getPositions, selectedSatId, satVersion, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory, weatherEvents, selectedEventId, weatherVersion, weatherTypeToggles, newsEvents, selectedNewsId, newsVersion, newsCategoryToggles, conflictEvents, selectedConflictId, conflictVersion, conflictTypeToggles, cyberEvents, selectedCyberId, cyberVersion, cyberTypeToggles, cursorForFilter])
+  }, [toggles, getPositions, selectedSatId, satVersion, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory, weatherEvents, selectedEventId, weatherVersion, weatherTypeToggles, newsEvents, selectedNewsId, newsVersion, newsCategoryToggles, conflictEvents, selectedConflictId, conflictVersion, conflictTypeToggles, cyberEvents, selectedCyberId, cyberVersion, cyberTypeToggles, osintPosts, osintVersion, osintPlatformToggles, cursorForFilter])
 
   return (
     <div className="fixed top-[46px] left-64 right-[272px] bottom-[34px]">

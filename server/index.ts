@@ -572,6 +572,69 @@ async function handleCyberEvents(): Promise<Response> {
   }
 }
 
+// ─── OSINT PROXY ─────────────────────────────────────────────────────────────
+
+import { parseRedditPosts, parseMastodonPosts, parseBlueskyPosts } from '../src/lib/osint-client'
+
+interface OsintCacheEntry { posts: unknown[]; errors: string[]; fetchedAt: number }
+let osintCache: OsintCacheEntry | null = null
+const OSINT_CACHE_TTL = 300_000 // 5 min
+
+async function fetchOsintPosts(): Promise<{ posts: unknown[]; errors: string[] }> {
+  if (osintCache && Date.now() - osintCache.fetchedAt < OSINT_CACHE_TTL) {
+    return { posts: osintCache.posts, errors: osintCache.errors }
+  }
+
+  const results = await Promise.allSettled([
+    fetch('https://www.reddit.com/r/worldnews/.json?limit=50', {
+      headers: { 'User-Agent': 'EagleEye/1.0' },
+      signal: AbortSignal.timeout(10_000),
+    })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+      .then(json => parseRedditPosts(json)),
+    fetch('https://mastodon.social/api/v1/timelines/public?limit=40', {
+      signal: AbortSignal.timeout(10_000),
+    })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+      .then(json => parseMastodonPosts(json)),
+    fetch('https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=breaking+news&limit=25', {
+      signal: AbortSignal.timeout(10_000),
+    })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+      .then(json => parseBlueskyPosts(json)),
+  ])
+
+  const posts: unknown[] = []
+  const errors: string[] = []
+  const sourceNames = ['Reddit', 'Mastodon', 'Bluesky']
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]
+    if (result.status === 'fulfilled') posts.push(...result.value)
+    else {
+      errors.push(`${sourceNames[i]}: ${result.reason?.message ?? 'Unknown error'}`)
+      console.warn(`[OSINT] ${sourceNames[i]} failed: ${result.reason?.message}`)
+    }
+  }
+
+  osintCache = { posts, errors, fetchedAt: Date.now() }
+  console.log(`[OSINT] ${posts.length} geolocated posts, ${errors.length} source errors`)
+  return { posts, errors }
+}
+
+async function handleOsintPosts(): Promise<Response> {
+  try {
+    const { posts, errors } = await fetchOsintPosts()
+    return Response.json({ posts, errors }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  } catch (err) {
+    console.error('[OSINT] Fetch error:', err)
+    return Response.json({ posts: [], errors: ['All sources failed'] }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+}
+
 // ─── SANCTIONS PROXY ─────────────────────────────────────────────────────────
 
 import { parseSanctionResults } from '../src/lib/sanctions-client'
@@ -708,6 +771,7 @@ Bun.serve<{ path: string }>({
     if (url.pathname === '/api/news/events') return handleNewsEvents()
     if (url.pathname === '/api/conflicts/events') return handleConflictEvents()
     if (url.pathname === '/api/cyber/events') return handleCyberEvents()
+    if (url.pathname === '/api/osint/posts') return handleOsintPosts()
     if (url.pathname === '/api/sanctions/check') return handleSanctionsCheck(url)
     if (url.pathname === '/api/hexdb/lookup') return handleHexdbLookup(url)
     if (url.pathname === '/api/hexdb/image') return handleHexdbImage(url)

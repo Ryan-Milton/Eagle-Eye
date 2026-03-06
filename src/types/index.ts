@@ -247,6 +247,18 @@ export interface RFSpot {
   source: 'psk' | 'rbn' | 'satnogs'
 }
 
+// ─── OSINT ────────────────────────────────────────────────────────────────
+
+export type OsintPlatform = 'reddit' | 'mastodon' | 'bluesky'
+
+export const OSINT_PLATFORMS: OsintPlatform[] = ['reddit', 'mastodon', 'bluesky']
+
+export const OSINT_PLATFORM_LABELS: Record<OsintPlatform, string> = {
+  reddit: 'Reddit',
+  mastodon: 'Mastodon',
+  bluesky: 'Bluesky',
+}
+
 export interface VesselRecord {
   mmsi: number
   name: string
