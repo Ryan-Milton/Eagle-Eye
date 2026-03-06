@@ -572,6 +572,45 @@ async function handleCyberEvents(): Promise<Response> {
   }
 }
 
+// ─── SANCTIONS PROXY ─────────────────────────────────────────────────────────
+
+import { parseSanctionResults } from '../src/lib/sanctions-client'
+
+const sanctionsCache = new Map<string, { data: unknown; fetchedAt: number }>()
+const SANCTIONS_CACHE_TTL = 3_600_000 // 1 hour
+
+async function handleSanctionsCheck(url: URL): Promise<Response> {
+  const query = url.searchParams.get('q')?.trim()
+  if (!query) return Response.json({ error: 'q required' }, { status: 400 })
+
+  const cacheKey = query.toLowerCase()
+  const cached = sanctionsCache.get(cacheKey)
+  if (cached && Date.now() - cached.fetchedAt < SANCTIONS_CACHE_TTL) {
+    return Response.json(cached.data, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+
+  try {
+    const res = await fetch(
+      `https://api.opensanctions.org/search/default?q=${encodeURIComponent(query)}&limit=5`,
+      { signal: AbortSignal.timeout(10_000) },
+    )
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const json = await res.json()
+    const matches = parseSanctionResults(json)
+    const result = { matches, query }
+    sanctionsCache.set(cacheKey, { data: result, fetchedAt: Date.now() })
+    return Response.json(result, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  } catch (err) {
+    return Response.json({ matches: [], error: (err as Error).message }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+}
+
 // ─── HEXDB PROXY ────────────────────────────────────────────────────────────
 
 const HEXDB = 'https://hexdb.io'
@@ -669,6 +708,7 @@ Bun.serve<{ path: string }>({
     if (url.pathname === '/api/news/events') return handleNewsEvents()
     if (url.pathname === '/api/conflicts/events') return handleConflictEvents()
     if (url.pathname === '/api/cyber/events') return handleCyberEvents()
+    if (url.pathname === '/api/sanctions/check') return handleSanctionsCheck(url)
     if (url.pathname === '/api/hexdb/lookup') return handleHexdbLookup(url)
     if (url.pathname === '/api/hexdb/image') return handleHexdbImage(url)
 
@@ -719,7 +759,7 @@ Bun.serve<{ path: string }>({
 console.log(`[Eagle Eye] Backend listening on :${PORT}`)
 console.log(`  WebSocket: /ws/ais, /ws/flights`)
 console.log(`  HTTP API:  /api/weather/events, /api/weather/conditions, /api/news/events, /api/conflicts/events, /api/cyber/events`)
-console.log(`             /api/hexdb/lookup, /api/hexdb/image`)
+console.log(`             /api/sanctions/check, /api/hexdb/lookup, /api/hexdb/image`)
 console.log(`  Health:    /health`)
 if (AIS_API_KEY) console.log('[AIS] API key configured')
 else console.warn('[AIS] Missing AIS_API_KEY — AIS proxy disabled')

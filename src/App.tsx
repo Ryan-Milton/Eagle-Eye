@@ -6,6 +6,7 @@ import { useWeatherInit } from '@/hooks/useWeatherInit'
 import { useNewsInit } from '@/hooks/useNewsInit'
 import { useConflictInit } from '@/hooks/useConflictInit'
 import { useCyberInit } from '@/hooks/useCyberInit'
+import { useAlertEngine } from '@/hooks/useAlertEngine'
 import { TopBar } from '@/components/panels/TopBar'
 import { BottomBar } from '@/components/panels/BottomBar'
 import { LeftPanel } from '@/components/panels/left/LeftPanel'
@@ -24,6 +25,7 @@ export default function App() {
   useNewsInit()
   useConflictInit()
   useCyberInit()
+  useAlertEngine()
 
   const activeView = useAppStore(s => s.activeView)
 

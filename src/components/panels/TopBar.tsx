@@ -8,6 +8,8 @@ import { useWeatherStore } from '@/stores/weather-store'
 import { useNewsStore } from '@/stores/news-store'
 import { useConflictStore } from '@/stores/conflict-store'
 import { useCyberStore } from '@/stores/cyber-store'
+import { useAlertStore } from '@/stores/alert-store'
+import { useWatchlistStore } from '@/stores/watchlist-store'
 import type { NavView } from '@/types'
 
 const NAV_VIEWS: NavView[] = ['Globe', 'Objects', 'Graph', 'Signals', 'Reports']
@@ -28,6 +30,8 @@ export function TopBar() {
   const conflictLastFetch = useConflictStore(s => s.lastFetch)
   const cyberCount = useCyberStore(s => s.count)
   const cyberLastFetch = useCyberStore(s => s.lastFetch)
+  const unackAlerts = useAlertStore(s => s.unacknowledgedCount)
+  const watchlistSize = useWatchlistStore(s => s.watchlist.size)
 
   const stats = getStats()
 
@@ -102,6 +106,17 @@ export function TopBar() {
           <span className="text-purple-400">{cyberCount}</span> CYB
           <Pip color={cyberLastFetch ? 'ok' : 'danger'} />
         </div>
+        {unackAlerts > 0 && (
+          <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px]">
+            <span className="text-red-400 font-bold">{unackAlerts}</span>
+            <span className="text-red-400/70">ALT</span>
+          </div>
+        )}
+        {watchlistSize > 0 && (
+          <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px] text-zinc-600">
+            <span className="text-orange-400">{watchlistSize}</span> WL
+          </div>
+        )}
         <div className="flex items-center gap-1.5 px-3 h-full border-l border-zinc-800 font-mono text-[11px] text-zinc-600">
           {dataAge !== null ? (
             <><Pip color={dataAge < 30 ? 'ok' : 'warn'} /> {dataAge < 1 ? '<1m' : `${dataAge}m`}</>

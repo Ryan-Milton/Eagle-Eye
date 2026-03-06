@@ -9,10 +9,14 @@ import { useWeatherStore } from '@/stores/weather-store'
 import { useNewsStore } from '@/stores/news-store'
 import { useConflictStore } from '@/stores/conflict-store'
 import { useCyberStore } from '@/stores/cyber-store'
+import { useAlertStore } from '@/stores/alert-store'
 import { useSelectionStore } from '@/stores/selection-store'
+import { useWatchlistStore } from '@/stores/watchlist-store'
 import { useFlightInfo } from '@/hooks/useFlightInfo'
+import { findNearbyEntities, type CorrelatedEntity } from '@/lib/correlation'
 import type { HexdbFlightInfo } from '@/lib/hexdb'
 import type { SatelliteRecord, SatellitePosition, VesselRecord, FlightRecord, ConstellationMeta, WeatherEvent, NewsEvent, ConflictEvent, CyberEvent } from '@/types'
+import type { SanctionMatch } from '@/lib/sanctions-client'
 
 const NAV_STATUS_LABELS: Record<number, string> = {
   0: 'Under way using engine',
@@ -27,7 +31,20 @@ const NAV_STATUS_LABELS: Record<number, string> = {
   15: 'Undefined',
 }
 
+type PanelMode = 'detail' | 'alerts'
+
+const DOMAIN_COLORS_MAP: Record<string, string> = {
+  vessel: 'text-cyan-400',
+  flight: 'text-yellow-400',
+  weather: 'text-green-400',
+  news: 'text-rose-400',
+  conflict: 'text-red-400',
+  cyber: 'text-purple-400',
+  satellite: 'text-orange-400',
+}
+
 export function RightPanel() {
+  const [panelMode, setPanelMode] = useState<PanelMode>('detail')
   const { selectedSatId, selectedMmsi, selectedIcao, selectedEventId, selectedNewsId, selectedConflictId, selectedCyberId } = useSelectionStore()
   const { getSatellites, getPositions, toggles, version: satVersion } = useSatelliteStore()
   const { vessels, version: vesselVersion } = useVesselStore()
@@ -36,6 +53,8 @@ export function RightPanel() {
   const { events: newsEvents, version: newsVersion } = useNewsStore()
   const { events: conflictEvents, version: conflictVersion } = useConflictStore()
   const { events: cyberEvents, version: cyberVersion } = useCyberStore()
+  const alerts = useAlertStore(s => s.alerts)
+  const unackCount = useAlertStore(s => s.unacknowledgedCount)
 
   // Derive selected records
   void vesselVersion
@@ -81,6 +100,38 @@ export function RightPanel() {
   }, [selectedSatellite])
   const epochAge = epochAgeRef.current
 
+  // Determine entity ID + lat/lon for watchlist and nearby
+  const selectedEntityId = selectedCyber ? `cyber-${selectedCyber.id}`
+    : selectedConflict ? `conflict-${selectedConflict.id}`
+    : selectedNews ? `news-${selectedNews.id}`
+    : selectedEvent ? `weather-${selectedEvent.id}`
+    : selectedFlight ? `flight-${selectedFlight.icao24}`
+    : selectedVessel ? `vessel-${selectedVessel.mmsi}`
+    : selectedSatellite ? `sat-${selectedSatellite.noradId}`
+    : null
+
+  const selectedLat = selectedCyber?.lat ?? selectedConflict?.lat ?? selectedNews?.lat ?? selectedEvent?.lat ?? selectedFlight?.lat ?? selectedVessel?.lat ?? selectedPosition?.lat ?? null
+  const selectedLon = selectedCyber?.lon ?? selectedConflict?.lon ?? selectedNews?.lon ?? selectedEvent?.lon ?? selectedFlight?.lon ?? selectedVessel?.lon ?? selectedPosition?.lon ?? null
+
+  // Watchlist
+  const isWatched = useWatchlistStore(s => selectedEntityId ? s.watchlist.has(selectedEntityId) : false)
+  const toggleWatch = useWatchlistStore(s => s.toggle)
+
+  // Nearby entities (50km radius)
+  const nearby = useMemo(() => {
+    if (selectedLat == null || selectedLon == null || !selectedEntityId) return []
+    const sources = [
+      { domain: 'vessel', entities: [...vessels.values()].map(v => ({ id: `vessel-${v.mmsi}`, name: v.name || String(v.mmsi), lat: v.lat, lon: v.lon })) },
+      { domain: 'flight', entities: [...flights.values()].map(f => ({ id: `flight-${f.icao24}`, name: f.callsign, lat: f.lat, lon: f.lon })) },
+      { domain: 'weather', entities: [...events.values()].map(e => ({ id: `weather-${e.id}`, name: e.title, lat: e.lat, lon: e.lon })) },
+      { domain: 'news', entities: [...newsEvents.values()].map(e => ({ id: `news-${e.id}`, name: e.title, lat: e.lat, lon: e.lon })) },
+      { domain: 'conflict', entities: [...conflictEvents.values()].map(e => ({ id: `conflict-${e.id}`, name: e.title, lat: e.lat, lon: e.lon })) },
+      { domain: 'cyber', entities: [...cyberEvents.values()].map(e => ({ id: `cyber-${e.id}`, name: e.title, lat: e.lat, lon: e.lon })) },
+    ]
+    return findNearbyEntities(selectedLat, selectedLon, 50, selectedEntityId, sources).slice(0, 10)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEntityId, selectedLat, selectedLon, vesselVersion, flightVersion, weatherVersion, newsVersion, conflictVersion, cyberVersion])
+
   // Determine panel title
   let panelTitle = 'Entity Detail'
   if (selectedCyber) panelTitle = 'Cyber Threat'
@@ -96,26 +147,63 @@ export function RightPanel() {
   return (
     <aside className="fixed top-[46px] right-0 bottom-[34px] w-[272px] bg-zinc-900 border-l border-zinc-800 z-40 flex flex-col overflow-hidden">
 
+      {/* Header with mode toggle */}
       <div className="flex items-center justify-between px-3.5 h-9 border-b border-zinc-800 flex-shrink-0">
-        <span className="font-display text-[12px] font-semibold tracking-[2.5px] text-zinc-600 uppercase">
-          {panelTitle}
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setPanelMode('detail')}
+            className={cn('font-display text-[12px] font-semibold tracking-[2px] uppercase transition-colors',
+              panelMode === 'detail' ? 'text-zinc-400' : 'text-zinc-700 hover:text-zinc-500'
+            )}
+          >
+            {panelTitle}
+          </button>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {selectedEntityId && (
+            <button
+              onClick={() => toggleWatch(selectedEntityId)}
+              className={cn('text-sm transition-colors', isWatched ? 'text-orange-400' : 'text-zinc-600 hover:text-zinc-400')}
+              title={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}
+            >
+              {isWatched ? '★' : '☆'}
+            </button>
+          )}
+          <button
+            onClick={() => setPanelMode(panelMode === 'alerts' ? 'detail' : 'alerts')}
+            className={cn(
+              'relative px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider rounded border transition-colors',
+              panelMode === 'alerts'
+                ? 'text-orange-400 border-orange-800/60 bg-orange-950/40'
+                : 'text-zinc-600 border-zinc-700 hover:text-zinc-400',
+            )}
+          >
+            Alerts
+            {unackCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
+                {unackCount > 99 ? '99' : unackCount}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
-      {selectedCyber ? (
-        <CyberDetail event={selectedCyber} />
+      {panelMode === 'alerts' ? (
+        <AlertsPanel />
+      ) : selectedCyber ? (
+        <CyberDetail event={selectedCyber} nearby={nearby} />
       ) : selectedConflict ? (
-        <ConflictDetail event={selectedConflict} />
+        <ConflictDetail event={selectedConflict} nearby={nearby} />
       ) : selectedNews ? (
-        <NewsDetail event={selectedNews} />
+        <NewsDetail event={selectedNews} nearby={nearby} />
       ) : selectedEvent ? (
-        <WeatherEventDetail event={selectedEvent} />
+        <WeatherEventDetail event={selectedEvent} nearby={nearby} />
       ) : selectedFlight ? (
-        <FlightDetail flight={selectedFlight} flightInfo={flightInfo} flightInfoLoading={flightInfoLoading} />
+        <FlightDetail flight={selectedFlight} flightInfo={flightInfo} flightInfoLoading={flightInfoLoading} nearby={nearby} />
       ) : selectedVessel ? (
-        <VesselDetail vessel={selectedVessel} />
+        <VesselDetail vessel={selectedVessel} nearby={nearby} />
       ) : selectedSatellite ? (
-        <SatelliteDetail satellite={selectedSatellite} position={selectedPosition} constellation={constellation} colorHex={colorHex} epochAge={epochAge} />
+        <SatelliteDetail satellite={selectedSatellite} position={selectedPosition} constellation={constellation} colorHex={colorHex} epochAge={epochAge} nearby={nearby} />
       ) : (
         <div className="flex-1 flex items-center justify-center">
           <p className="text-[13px] text-zinc-600">Select an entity to view details</p>
@@ -125,7 +213,72 @@ export function RightPanel() {
   )
 }
 
-function NewsDetail({ event }: { event: NewsEvent }) {
+function AlertsPanel() {
+  const alerts = useAlertStore(s => s.alerts)
+  const acknowledge = useAlertStore(s => s.acknowledge)
+  const acknowledgeAll = useAlertStore(s => s.acknowledgeAll)
+
+  const severityColor = (sev: string) => {
+    if (sev === 'critical') return 'text-red-400 border-l-red-500'
+    if (sev === 'warning') return 'text-yellow-400 border-l-yellow-500'
+    return 'text-blue-400 border-l-blue-500'
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
+      {alerts.length > 0 && (
+        <div className="px-3.5 py-2 border-b border-zinc-800 flex items-center justify-between">
+          <span className="font-mono text-[11px] text-zinc-500">{alerts.length} alerts</span>
+          <button onClick={acknowledgeAll} className="font-mono text-[10px] text-zinc-600 hover:text-zinc-400 uppercase tracking-wider">Ack All</button>
+        </div>
+      )}
+      {alerts.length === 0 && (
+        <div className="flex-1 flex items-center justify-center py-12">
+          <p className="text-[13px] text-zinc-600">No alerts</p>
+        </div>
+      )}
+      {alerts.map(a => (
+        <button
+          key={a.id}
+          onClick={() => !a.acknowledged && acknowledge(a.id)}
+          className={cn(
+            'w-full text-left px-3.5 py-2 border-b border-zinc-800/50 border-l-2 transition-colors',
+            severityColor(a.severity),
+            a.acknowledged ? 'opacity-40' : 'hover:bg-zinc-800/30',
+          )}
+        >
+          <div className="font-mono text-[11px] font-medium">{a.title}</div>
+          <div className="font-mono text-[10px] text-zinc-500 mt-0.5 truncate">{a.description}</div>
+          <div className="font-mono text-[9px] text-zinc-600 mt-0.5 uppercase">
+            {a.domain} — {new Date(a.time).toISOString().slice(11, 19)}Z
+          </div>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function NearbyEntities({ nearby }: { nearby: CorrelatedEntity[] }) {
+  if (nearby.length === 0) return null
+  return (
+    <div className="px-3.5 py-3 border-b border-zinc-800">
+      <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Nearby Entities</div>
+      <div className="space-y-1.5">
+        {nearby.map(e => (
+          <div key={e.id} className="flex items-center gap-2">
+            <span className={cn('font-mono text-[10px] uppercase w-7', DOMAIN_COLORS_MAP[e.domain] ?? 'text-zinc-400')}>
+              {e.domain.slice(0, 3)}
+            </span>
+            <span className="font-mono text-[11px] text-zinc-400 truncate flex-1">{e.name}</span>
+            <span className="font-mono text-[10px] text-zinc-600">{e.distance.toFixed(0)}km</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function NewsDetail({ event, nearby }: { event: NewsEvent; nearby: CorrelatedEntity[] }) {
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
       <div className="px-3.5 py-3 border-b border-zinc-800">
@@ -163,11 +316,13 @@ function NewsDetail({ event }: { event: NewsEvent }) {
           </a>
         </div>
       )}
+
+      <NearbyEntities nearby={nearby} />
     </div>
   )
 }
 
-function ConflictDetail({ event }: { event: ConflictEvent }) {
+function ConflictDetail({ event, nearby }: { event: ConflictEvent; nearby: CorrelatedEntity[] }) {
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
       <div className="px-3.5 py-3 border-b border-zinc-800">
@@ -212,11 +367,13 @@ function ConflictDetail({ event }: { event: ConflictEvent }) {
           <p className="font-mono text-[11px] text-zinc-400 leading-relaxed whitespace-pre-wrap">{event.description.slice(0, 500)}</p>
         </div>
       )}
+
+      <NearbyEntities nearby={nearby} />
     </div>
   )
 }
 
-function CyberDetail({ event }: { event: CyberEvent }) {
+function CyberDetail({ event, nearby }: { event: CyberEvent; nearby: CorrelatedEntity[] }) {
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
       <div className="px-3.5 py-3 border-b border-zinc-800">
@@ -253,11 +410,13 @@ function CyberDetail({ event }: { event: CyberEvent }) {
           <p className="font-mono text-[11px] text-zinc-400 leading-relaxed whitespace-pre-wrap">{event.description.slice(0, 500)}</p>
         </div>
       )}
+
+      <NearbyEntities nearby={nearby} />
     </div>
   )
 }
 
-function WeatherEventDetail({ event }: { event: WeatherEvent }) {
+function WeatherEventDetail({ event, nearby }: { event: WeatherEvent; nearby: CorrelatedEntity[] }) {
   const [conditions, setConditions] = useState<{
     current?: {
       temperature_2m?: number
@@ -357,14 +516,17 @@ function WeatherEventDetail({ event }: { event: WeatherEvent }) {
           <div className="font-mono text-[12px] text-zinc-600">No conditions available</div>
         )}
       </div>
+
+      <NearbyEntities nearby={nearby} />
     </div>
   )
 }
 
-function FlightDetail({ flight, flightInfo, flightInfoLoading }: {
+function FlightDetail({ flight, flightInfo, flightInfoLoading, nearby }: {
   flight: FlightRecord
   flightInfo: HexdbFlightInfo
   flightInfoLoading: boolean
+  nearby: CorrelatedEntity[]
 }) {
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
@@ -452,11 +614,27 @@ function FlightDetail({ flight, flightInfo, flightInfoLoading }: {
           <DetailRow label="Age" value={`${Math.round((Date.now() - flight.lastUpdate) / 1000)}s`} />
         </div>
       </div>
+
+      <NearbyEntities nearby={nearby} />
     </div>
   )
 }
 
-function VesselDetail({ vessel }: { vessel: VesselRecord }) {
+function VesselDetail({ vessel, nearby }: { vessel: VesselRecord; nearby: CorrelatedEntity[] }) {
+  const [sanctions, setSanctions] = useState<SanctionMatch[]>([])
+  const [sanctionsLoading, setSanctionsLoading] = useState(false)
+
+  useEffect(() => {
+    setSanctions([])
+    const name = vessel.name?.trim()
+    if (!name || name === String(vessel.mmsi)) return
+    setSanctionsLoading(true)
+    fetch(`/api/sanctions/check?q=${encodeURIComponent(name)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.matches) setSanctions(data.matches) })
+      .catch(() => {})
+      .finally(() => setSanctionsLoading(false))
+  }, [vessel.mmsi, vessel.name])
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
       <div className="px-3.5 py-3 border-b border-zinc-800">
@@ -495,16 +673,38 @@ function VesselDetail({ vessel }: { vessel: VesselRecord }) {
           <DetailRow label="Age" value={`${Math.round((Date.now() - vessel.lastUpdate) / 1000)}s`} />
         </div>
       </div>
+
+      {/* Sanctions check */}
+      {sanctionsLoading && (
+        <div className="px-3.5 py-3 border-b border-zinc-800">
+          <div className="font-mono text-[12px] text-zinc-600 animate-pulse">Checking sanctions...</div>
+        </div>
+      )}
+      {sanctions.length > 0 && (
+        <div className="px-3.5 py-3 border-b border-zinc-800 bg-red-950/20">
+          <div className="font-display text-[13px] font-bold tracking-[2px] text-red-400 uppercase mb-2">Sanctioned</div>
+          {sanctions.map(s => (
+            <div key={s.id} className="mb-2">
+              <div className="font-mono text-[12px] text-red-300">{s.name}</div>
+              <div className="font-mono text-[10px] text-zinc-500">{s.datasets.slice(0, 3).join(', ')}</div>
+              <div className="font-mono text-[10px] text-zinc-600">Match: {(s.score * 100).toFixed(0)}%</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <NearbyEntities nearby={nearby} />
     </div>
   )
 }
 
-function SatelliteDetail({ satellite, position, constellation, colorHex, epochAge }: {
+function SatelliteDetail({ satellite, position, constellation, colorHex, epochAge, nearby }: {
   satellite: SatelliteRecord
   position: SatellitePosition | null
   constellation: ConstellationMeta | null
   colorHex: string
   epochAge: number | null
+  nearby: CorrelatedEntity[]
 }) {
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
@@ -549,6 +749,8 @@ function SatelliteDetail({ satellite, position, constellation, colorHex, epochAg
           <DetailRow label="Age" value={epochAge !== null ? `${epochAge}h` : '—'} warn={epochAge !== null && epochAge > 48} />
         </div>
       </div>
+
+      <NearbyEntities nearby={nearby} />
     </div>
   )
 }
