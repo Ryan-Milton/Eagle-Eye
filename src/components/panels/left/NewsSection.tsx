@@ -4,6 +4,8 @@ import { NEWS_CATEGORIES, NEWS_CATEGORY_LABELS } from '@/types'
 import type { NewsEvent, NewsCategory } from '@/types'
 import { NEWS_CATEGORY_COLORS, NEWS_CATEGORY_DOT_COLORS } from '@/lib/colors'
 import { SourceBadge } from '@/components/ui/SourceBadge'
+import { ConfidencePip } from '@/components/ui/ConfidencePip'
+import { computeConfidence } from '@/lib/confidence'
 import { useNewsStore } from '@/stores/news-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { MasterToggle, TypeToggle } from './shared'
@@ -114,6 +116,7 @@ export function NewsSection({ expanded, onToggle }: { expanded: boolean; onToggl
                             <div className="font-mono text-[11px] text-zinc-400 truncate">{event.title}</div>
                             <div className="flex items-center gap-1.5 mt-0.5">
                               <SourceBadge source={event.source} />
+                              <ConfidencePip level={computeConfidence({ source: event.source, time: event.time })} />
                               {event.tone < -3 && <span className="font-mono text-[9px] text-red-400">NEG</span>}
                               {event.tone > 3 && <span className="font-mono text-[9px] text-green-400">POS</span>}
                             </div>

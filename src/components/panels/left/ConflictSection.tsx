@@ -4,6 +4,8 @@ import { CONFLICT_EVENT_TYPES, CONFLICT_EVENT_LABELS } from '@/types'
 import type { ConflictEvent, ConflictEventType } from '@/types'
 import { CONFLICT_TYPE_COLORS, CONFLICT_TYPE_DOT_COLORS } from '@/lib/colors'
 import { SourceBadge } from '@/components/ui/SourceBadge'
+import { ConfidencePip } from '@/components/ui/ConfidencePip'
+import { computeConfidence } from '@/lib/confidence'
 import { useConflictStore } from '@/stores/conflict-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { MasterToggle, TypeToggle } from './shared'
@@ -120,6 +122,7 @@ export function ConflictSection({ expanded, onToggle }: { expanded: boolean; onT
                                 {event.type}
                               </span>
                               <SourceBadge source={event.source} />
+                              <ConfidencePip level={computeConfidence({ source: event.source, time: event.time, severity: event.fatalities })} />
                               {event.fatalities > 0 && (
                                 <span className="font-mono text-[10px] text-red-400">{event.fatalities} fatal</span>
                               )}
