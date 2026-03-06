@@ -108,6 +108,74 @@ async function getOpenSkyToken(): Promise<string | null> {
   return accessToken
 }
 
+// ─── ACLED OAuth Token Management ────────────────────────────────────────
+const ACLED_TOKEN_URL = 'https://acleddata.com/oauth/token'
+const ACLED_AUTH_EMAIL = process.env.ACLED_EMAIL ?? ''
+const ACLED_AUTH_PASSWORD = process.env.ACLED_PASSWORD ?? ''
+let acledAccessToken: string | null = null
+let acledTokenExpiresAt = 0
+let acledRefreshToken = process.env.ACLED_REFRESH_TOKEN ?? ''
+
+async function getACLEDToken(): Promise<string | null> {
+  if (!ACLED_AUTH_EMAIL || !ACLED_AUTH_PASSWORD) return null
+  if (acledAccessToken && Date.now() < acledTokenExpiresAt - 5 * 60_000) return acledAccessToken
+
+  // Try refresh token first
+  if (acledRefreshToken) {
+    try {
+      const res = await fetch(ACLED_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: acledRefreshToken,
+          client_id: 'acled',
+        }),
+      })
+      if (res.ok) {
+        const json = await res.json()
+        acledAccessToken = json.access_token
+        acledTokenExpiresAt = Date.now() + (json.expires_in ?? 86400) * 1000
+        acledRefreshToken = json.refresh_token ?? acledRefreshToken
+        console.log(`[ACLED] Token acquired via refresh_token, expires in ${json.expires_in ?? 86400}s`)
+        return acledAccessToken
+      }
+      console.warn(`[ACLED] Refresh token failed (${res.status}), falling back to password grant`)
+    } catch (err) {
+      console.warn(`[ACLED] Refresh token error: ${(err as Error).message}`)
+    }
+  }
+
+  // Fallback: password grant
+  try {
+    const res = await fetch(ACLED_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'password',
+        username: ACLED_AUTH_EMAIL,
+        password: ACLED_AUTH_PASSWORD,
+        client_id: 'acled',
+      }),
+    })
+    if (!res.ok) {
+      console.error(`[ACLED] Password grant failed: ${res.status}`)
+      acledAccessToken = null
+      return null
+    }
+    const json = await res.json()
+    acledAccessToken = json.access_token
+    acledTokenExpiresAt = Date.now() + (json.expires_in ?? 86400) * 1000
+    acledRefreshToken = json.refresh_token ?? ''
+    console.log(`[ACLED] Token acquired via password grant, expires in ${json.expires_in ?? 86400}s`)
+    return acledAccessToken
+  } catch (err) {
+    console.error(`[ACLED] Password grant error: ${(err as Error).message}`)
+    acledAccessToken = null
+    return null
+  }
+}
+
 interface FlightData {
   icao24: string
   callsign: string
@@ -466,18 +534,19 @@ async function fetchConflictEvents(): Promise<{ events: unknown[]; errors: strin
     return { events: conflictCache.events, errors: conflictCache.errors }
   }
 
-  // ACLED requires OAuth registration; UCDP requires email-requested token
-  // Use ACLED with key if available, otherwise skip gracefully
-  const ACLED_KEY = process.env.ACLED_API_KEY ?? ''
-  const ACLED_EMAIL = process.env.ACLED_EMAIL ?? ''
   const UCDP_TOKEN = process.env.UCDP_TOKEN ?? ''
 
   const fetchers: Array<Promise<ReturnType<typeof parseACLEDEvents>>> = []
   const fetcherNames: string[] = []
 
-  if (ACLED_KEY && ACLED_EMAIL) {
+  // ACLED — auto-refreshing OAuth token
+  const acledToken = await getACLEDToken()
+  if (acledToken) {
     fetchers.push(
-      fetch(`https://api.acleddata.com/acled/read?key=${ACLED_KEY}&email=${ACLED_EMAIL}&limit=500`, { signal: AbortSignal.timeout(15_000) })
+      fetch('https://api.acleddata.com/acled/read?limit=500', {
+        signal: AbortSignal.timeout(15_000),
+        headers: { 'Authorization': `Bearer ${acledToken}` },
+      })
         .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
         .then(json => parseACLEDEvents(json))
     )
@@ -508,7 +577,7 @@ async function fetchConflictEvents(): Promise<{ events: unknown[]; errors: strin
       console.warn(`[Conflict] ${fetcherNames[i]} failed: ${result.reason?.message}`)
     }
   }
-  if (!ACLED_KEY) errors.push('ACLED: No API key (set ACLED_API_KEY + ACLED_EMAIL)')
+  if (!acledToken) errors.push('ACLED: No credentials (set ACLED_EMAIL + ACLED_PASSWORD in .env)')
 
   conflictCache = { events, errors, fetchedAt: Date.now() }
   console.log(`[Conflict] ${events.length} events, ${errors.length} source errors`)
