@@ -30,11 +30,21 @@ import type { Camera } from '@/lib/camera-client'
 // import type { EconomicIndicator } from '@/lib/economic-client'
 import type { PositionHistory } from '@/lib/position-history'
 
-type MapStyle = 'dark' | 'light'
+type MapStyle = 'dark' | 'light' | 'satellite'
 
 const STYLES: Record<MapStyle, string> = {
   dark: 'mapbox://styles/mapbox/dark-v11',
   light: 'mapbox://styles/mapbox/light-v11',
+  satellite: 'mapbox://styles/mapbox/satellite-streets-v12',
+}
+
+type VizMode = 'standard' | 'nvg' | 'thermal' | 'crt'
+
+const VIZ_MODE_FILTERS: Record<VizMode, string> = {
+  standard: 'none',
+  nvg: 'hue-rotate(120deg) saturate(3) brightness(0.7) contrast(1.4)',
+  thermal: 'invert(0.9) hue-rotate(180deg) saturate(1.5) contrast(1.2)',
+  crt: 'contrast(1.1) brightness(0.95)',
 }
 
 const FOG_CONFIGS: Record<MapStyle, mapboxgl.FogSpecification> = {
@@ -51,6 +61,13 @@ const FOG_CONFIGS: Record<MapStyle, mapboxgl.FogSpecification> = {
     'horizon-blend': 0.01,
     'space-color': '#09090b',
     'star-intensity': 0.4,
+  },
+  satellite: {
+    'color': '#0a0a0a',
+    'high-color': '#0a1628',
+    'horizon-blend': 0.06,
+    'space-color': '#09090b',
+    'star-intensity': 0.5,
   },
 }
 
@@ -685,12 +702,11 @@ function addEntityLayers(map: mapboxgl.Map) {
     id: 'cameras-layer',
     type: 'circle',
     source: 'cameras',
-    minzoom: 5,
     paint: {
-      'circle-radius': 2,
+      'circle-radius': ['case', ['get', 'selected'], 4, 2],
       'circle-color': '#38bdf8',
-      'circle-opacity': 0.7,
-      'circle-stroke-width': 1,
+      'circle-opacity': ['case', ['get', 'selected'], 1, 0.7],
+      'circle-stroke-width': ['case', ['get', 'selected'], 1.5, 0],
       'circle-stroke-color': '#0ea5e9',
     },
   })
@@ -720,8 +736,10 @@ const ENTITY_LAYERS = ['satellites-layer', 'vessels-layer', 'flights-layer', 'we
 export function MapboxGlobeView() {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
+  const cameraPopupRef = useRef<mapboxgl.Popup | null>(null)
   const [mapReady, setMapReady] = useState(false)
   const [mapStyle, setMapStyle] = useState<MapStyle>('dark')
+  const [vizMode, setVizMode] = useState<VizMode>('standard')
   const layersReadyRef = useRef(false)
 
   // Read from stores
@@ -771,6 +789,7 @@ export function MapboxGlobeView() {
   const selectedConflictId = useSelectionStore(s => s.selectedConflictId)
   const selectedCyberId = useSelectionStore(s => s.selectedCyberId)
   const selectedRFId = useSelectionStore(s => s.selectedRFId)
+  const selectedCameraId = useSelectionStore(s => s.selectedCameraId)
   const timelineCursor = useAppStore(s => s.timelineCursor)
   const timelineLive = useAppStore(s => s.timelineLive)
 
@@ -789,7 +808,9 @@ export function MapboxGlobeView() {
     })
 
     map.on('style.load', () => {
-      map.setFog(FOG_CONFIGS[map.getStyle().name?.includes('Light') ? 'light' : 'dark'])
+      const styleName = map.getStyle().name ?? ''
+      const fogKey = styleName.includes('Light') ? 'light' : styleName.includes('Satellite') ? 'satellite' : 'dark'
+      map.setFog(FOG_CONFIGS[fogKey])
       addEntityLayers(map)
       layersReadyRef.current = true
     })
@@ -843,6 +864,12 @@ export function MapboxGlobeView() {
         useSelectionStore.getState().selectRF(e.features[0].properties.rfId)
       }
     })
+    map.on('click', 'cameras-layer', (e) => {
+      if (e.features?.[0]?.properties?.cameraId) {
+        e.originalEvent.stopPropagation()
+        useSelectionStore.getState().selectCamera(e.features[0].properties.cameraId)
+      }
+    })
 
     map.on('click', (e) => {
       const features = map.queryRenderedFeatures(e.point, { layers: [...ENTITY_LAYERS] })
@@ -856,10 +883,37 @@ export function MapboxGlobeView() {
       map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = '' })
     }
 
+    // Dynamic camera scan when zoomed in
+    const SCAN_ZOOM_THRESHOLD = 5
+    let scanTimer: ReturnType<typeof setTimeout> | null = null
+    const scannedAreas = new Set<string>()
+
+    map.on('moveend', () => {
+      if (map.getZoom() < SCAN_ZOOM_THRESHOLD) return
+      const center = map.getCenter()
+      // Grid key to avoid re-scanning the same area (1-degree cells)
+      const gridKey = `${Math.round(center.lat)},${Math.round(center.lng)}`
+      if (scannedAreas.has(gridKey)) return
+
+      if (scanTimer) clearTimeout(scanTimer)
+      scanTimer = setTimeout(async () => {
+        scannedAreas.add(gridKey)
+        try {
+          const res = await fetch(`/api/cameras/scan?lat=${center.lat.toFixed(2)}&lon=${center.lng.toFixed(2)}&radius=250`)
+          if (!res.ok) return
+          const json = await res.json() as { cameras: import('@/lib/camera-client').Camera[] }
+          if (json.cameras?.length) {
+            useCameraStore.getState().mergeCameras(json.cameras)
+          }
+        } catch { /* non-critical */ }
+      }, 800)
+    })
+
     mapRef.current = map
     setMapReady(true)
 
     return () => {
+      if (scanTimer) clearTimeout(scanTimer)
       layersReadyRef.current = false
       map.remove()
       mapRef.current = null
@@ -900,7 +954,7 @@ export function MapboxGlobeView() {
         if (!enabled) continue
         const pos = getPositions(id).find(p => p.noradId === selectedSatId)
         if (pos) {
-          map.flyTo({ center: [pos.lon, pos.lat], zoom: 3, duration: 1500 })
+          map.flyTo({ center: [pos.lon, pos.lat], duration: 1500 })
           return
         }
       }
@@ -910,7 +964,7 @@ export function MapboxGlobeView() {
     if (selectedMmsi !== null) {
       const v = vessels.get(selectedMmsi)
       if (v) {
-        map.flyTo({ center: [v.lon, v.lat], zoom: 6, duration: 1500 })
+        map.flyTo({ center: [v.lon, v.lat], duration: 1500 })
         return
       }
     }
@@ -919,7 +973,7 @@ export function MapboxGlobeView() {
     if (selectedIcao !== null) {
       const f = flights.get(selectedIcao)
       if (f) {
-        map.flyTo({ center: [f.lon, f.lat], zoom: 6, duration: 1500 })
+        map.flyTo({ center: [f.lon, f.lat], duration: 1500 })
         return
       }
     }
@@ -928,7 +982,7 @@ export function MapboxGlobeView() {
     if (selectedEventId !== null) {
       const e = weatherEvents.get(selectedEventId)
       if (e) {
-        map.flyTo({ center: [e.lon, e.lat], zoom: 5, duration: 1500 })
+        map.flyTo({ center: [e.lon, e.lat], duration: 1500 })
         return
       }
     }
@@ -937,7 +991,7 @@ export function MapboxGlobeView() {
     if (selectedNewsId !== null) {
       const e = newsEvents.get(selectedNewsId)
       if (e) {
-        map.flyTo({ center: [e.lon, e.lat], zoom: 5, duration: 1500 })
+        map.flyTo({ center: [e.lon, e.lat], duration: 1500 })
         return
       }
     }
@@ -946,7 +1000,7 @@ export function MapboxGlobeView() {
     if (selectedConflictId !== null) {
       const e = conflictEvents.get(selectedConflictId)
       if (e) {
-        map.flyTo({ center: [e.lon, e.lat], zoom: 6, duration: 1500 })
+        map.flyTo({ center: [e.lon, e.lat], duration: 1500 })
         return
       }
     }
@@ -955,7 +1009,7 @@ export function MapboxGlobeView() {
     if (selectedCyberId !== null) {
       const e = cyberEvents.get(selectedCyberId)
       if (e) {
-        map.flyTo({ center: [e.lon, e.lat], zoom: 5, duration: 1500 })
+        map.flyTo({ center: [e.lon, e.lat], duration: 1500 })
         return
       }
     }
@@ -964,12 +1018,21 @@ export function MapboxGlobeView() {
     if (selectedRFId !== null) {
       const spot = rfSpots.get(selectedRFId)
       if (spot) {
-        map.flyTo({ center: [spot.rxLon, spot.rxLat], zoom: 5, duration: 1500 })
+        map.flyTo({ center: [spot.rxLon, spot.rxLat], duration: 1500 })
+        return
+      }
+    }
+
+    // Camera selected
+    if (selectedCameraId !== null) {
+      const cam = cameraData.get(selectedCameraId)
+      if (cam) {
+        map.flyTo({ center: [cam.lon, cam.lat], duration: 1500 })
         return
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSatId, selectedMmsi, selectedIcao, selectedEventId, selectedNewsId, selectedConflictId, selectedCyberId, selectedRFId, toggles, getPositions, vessels, flights, weatherEvents, newsEvents, conflictEvents, cyberEvents, rfSpots, vesselVersion, flightVersion, weatherVersion, newsVersion, conflictVersion, cyberVersion, rfVersion])
+  }, [selectedSatId, selectedMmsi, selectedIcao, selectedEventId, selectedNewsId, selectedConflictId, selectedCyberId, selectedRFId, selectedCameraId, toggles, getPositions, vessels, flights, weatherEvents, newsEvents, conflictEvents, cyberEvents, rfSpots, cameraData, vesselVersion, flightVersion, weatherVersion, newsVersion, conflictVersion, cyberVersion, rfVersion, cameraVersion])
 
   // Use timeline cursor only when not live
   const cursorForFilter = timelineLive ? undefined : timelineCursor
@@ -1080,6 +1143,62 @@ export function MapboxGlobeView() {
     if (src) src.setData(buildCameraGeoJSON(cameraData, cameraVisible))
   }, [cameraVersion, cameraData, cameraVisible])
 
+  // Camera feed popup
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    // Remove previous popup without triggering selectCamera(null)
+    if (cameraPopupRef.current) {
+      // Remove all close listeners before removing to prevent clearing the new selection
+      ;(cameraPopupRef.current as any)._listeners = {}
+      cameraPopupRef.current.remove()
+      cameraPopupRef.current = null
+    }
+
+    if (selectedCameraId === null) return
+
+    const cam = cameraData.get(selectedCameraId)
+    if (!cam) return
+
+    const thumbSrc = cam.thumbnail || ''
+    const popup = new mapboxgl.Popup({
+      closeOnClick: false,
+      closeButton: true,
+      maxWidth: '220px',
+      className: 'camera-feed-popup',
+      offset: 12,
+    })
+      .setLngLat([cam.lon, cam.lat])
+      .setHTML(`
+        <div style="background:#18181b;border-radius:6px;overflow:hidden;font-family:'DM Mono',monospace;">
+          ${thumbSrc ? `<img src="${thumbSrc}" alt="" style="width:200px;height:140px;object-fit:cover;display:block;" />` : '<div style="width:200px;height:140px;background:#27272a;display:flex;align-items:center;justify-content:center;color:#71717a;font-size:11px;">No feed</div>'}
+          <div style="padding:6px 8px;">
+            <div style="font-size:11px;color:#e4e4e7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${cam.title}</div>
+            <div style="font-size:10px;color:#71717a;margin-top:2px;">${cam.city}${cam.country ? `, ${cam.country}` : ''}</div>
+          </div>
+        </div>
+      `)
+      .addTo(map)
+
+    popup.on('close', () => {
+      // Only clear if this popup's camera is still the selected one
+      if (useSelectionStore.getState().selectedCameraId === selectedCameraId) {
+        useSelectionStore.getState().selectCamera(null)
+      }
+    })
+
+    cameraPopupRef.current = popup
+
+    return () => {
+      if (cameraPopupRef.current) {
+        ;(cameraPopupRef.current as any)._listeners = {}
+        cameraPopupRef.current.remove()
+        cameraPopupRef.current = null
+      }
+    }
+  }, [selectedCameraId, cameraData])
+
   // Sync all data after style change
   useEffect(() => {
     const map = mapRef.current
@@ -1119,34 +1238,85 @@ export function MapboxGlobeView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toggles, getPositions, selectedSatId, satVersion, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory, weatherEvents, selectedEventId, weatherVersion, weatherTypeToggles, newsEvents, selectedNewsId, newsVersion, newsCategoryToggles, conflictEvents, selectedConflictId, conflictVersion, conflictTypeToggles, cyberEvents, selectedCyberId, cyberVersion, cyberTypeToggles, osintPosts, osintVersion, osintPlatformToggles, portData, portVersion, portVisible, rfSpots, rfVersion, rfSourceToggles, cameraData, cameraVersion, cameraVisible, cursorForFilter])
 
+  const filterStyle = VIZ_MODE_FILTERS[vizMode]
+
   return (
     <div className="fixed top-[46px] left-64 right-[272px] bottom-[34px]">
-      <div ref={containerRef} className="w-full h-full" />
+      <div
+        ref={containerRef}
+        className="w-full h-full"
+        style={{ filter: filterStyle }}
+      />
 
-      {/* Style toggle */}
-      <div className="absolute top-3 left-3 flex rounded-md overflow-hidden border border-zinc-700 bg-zinc-900/90 backdrop-blur-sm">
-        {(['dark', 'light'] as const).map(style => (
-          <button
-            key={style}
-            onClick={() => handleStyleChange(style)}
-            className={cn(
-              'px-3 py-1.5 text-xs font-mono uppercase tracking-wider transition-colors',
-              mapStyle === style
-                ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
-                : 'text-zinc-500 hover:text-zinc-300',
-              style === 'dark' && 'border-r border-zinc-700',
-            )}
-          >
-            {style}
-          </button>
-        ))}
+      {/* CRT scanline overlay */}
+      {vizMode === 'crt' && (
+        <div
+          className="absolute inset-0 pointer-events-none z-10"
+          style={{
+            background: 'repeating-linear-gradient(0deg, rgba(0,0,0,0.15) 0px, rgba(0,0,0,0.15) 1px, transparent 1px, transparent 3px)',
+            mixBlendMode: 'multiply',
+          }}
+        />
+      )}
+
+      {/* NVG vignette overlay */}
+      {vizMode === 'nvg' && (
+        <div
+          className="absolute inset-0 pointer-events-none z-10"
+          style={{
+            background: 'radial-gradient(ellipse at center, transparent 50%, rgba(0,20,0,0.6) 100%)',
+          }}
+        />
+      )}
+
+      {/* Map style toggle */}
+      <div className="absolute top-3 left-3 flex flex-col gap-1.5 z-20">
+        <div className="flex rounded-md overflow-hidden border border-zinc-700 bg-zinc-900/90 backdrop-blur-sm">
+          {(['dark', 'light', 'satellite'] as const).map((style, i) => (
+            <button
+              key={style}
+              onClick={() => handleStyleChange(style)}
+              className={cn(
+                'px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors',
+                mapStyle === style
+                  ? 'bg-orange-500/20 text-orange-400'
+                  : 'text-zinc-500 hover:text-zinc-300',
+                i < 2 && 'border-r border-zinc-700',
+              )}
+            >
+              {style === 'satellite' ? 'sat' : style}
+            </button>
+          ))}
+        </div>
+
+        {/* Visualization mode toggle */}
+        <div className="flex rounded-md overflow-hidden border border-zinc-700 bg-zinc-900/90 backdrop-blur-sm">
+          {(['standard', 'nvg', 'thermal', 'crt'] as const).map((mode, i) => (
+            <button
+              key={mode}
+              onClick={() => setVizMode(mode)}
+              className={cn(
+                'px-2 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors',
+                vizMode === mode
+                  ? mode === 'nvg' ? 'bg-green-500/20 text-green-400'
+                    : mode === 'thermal' ? 'bg-red-500/20 text-red-400'
+                    : mode === 'crt' ? 'bg-amber-500/20 text-amber-400'
+                    : 'bg-orange-500/20 text-orange-400'
+                  : 'text-zinc-500 hover:text-zinc-300',
+                i < 3 && 'border-r border-zinc-700',
+              )}
+            >
+              {mode === 'standard' ? 'std' : mode}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Map overlays */}
       <CoordinateHUD map={mapReady ? mapRef.current : null} />
       <MeasurementTool map={mapReady ? mapRef.current : null} />
       <GeofenceTool map={mapReady ? mapRef.current : null} />
-      <div className="absolute top-3 left-[180px]">
+      <div className="absolute top-3 left-[220px]">
         <MapScreenshot map={mapReady ? mapRef.current : null} />
       </div>
     </div>
