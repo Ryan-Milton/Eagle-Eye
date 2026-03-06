@@ -11,7 +11,10 @@ import { useConflictStore } from '@/stores/conflict-store'
 import { useCyberStore } from '@/stores/cyber-store'
 import { useRFStore } from '@/stores/rf-store'
 import { useAlertStore } from '@/stores/alert-store'
+import { AlertRuleList } from '@/components/ui/AlertRuleEditor'
 import { useOsintStore } from '@/stores/osint-store'
+import { OsintModal } from '@/components/ui/OsintModal'
+import type { OsintPost } from '@/lib/osint-client'
 import { useSelectionStore } from '@/stores/selection-store'
 import { useWatchlistStore } from '@/stores/watchlist-store'
 import { useFlightInfo } from '@/hooks/useFlightInfo'
@@ -206,6 +209,7 @@ function IntelligenceFeed() {
   const acknowledgeAll = useAlertStore(s => s.acknowledgeAll)
   const { posts, platformToggles, version, count } = useOsintStore()
   const { selectEvent, selectConflict, selectCyber, selectVessel, selectFlight } = useSelectionStore()
+  const [osintModalPost, setOsintModalPost] = useState<OsintPost | null>(null)
 
   const severityColor = (sev: string) => {
     if (sev === 'critical') return 'text-red-400 border-l-red-500'
@@ -272,6 +276,7 @@ function IntelligenceFeed() {
             </button>
           ))
         )}
+        <AlertRuleList />
       </div>
 
       {/* OSINT feed section */}
@@ -286,12 +291,10 @@ function IntelligenceFeed() {
           </div>
         ) : (
           sortedPosts.map(post => (
-            <a
+            <button
               key={post.id}
-              href={post.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block px-3.5 py-2 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors"
+              onClick={() => setOsintModalPost(post)}
+              className="block w-full text-left px-3.5 py-2 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-1.5 mb-0.5">
                 <span className={cn(
@@ -307,10 +310,11 @@ function IntelligenceFeed() {
               <div className="font-mono text-[9px] text-zinc-600 mt-0.5">
                 {new Date(post.time).toISOString().slice(11, 19)}Z
               </div>
-            </a>
+            </button>
           ))
         )}
       </div>
+      <OsintModal post={osintModalPost} onClose={() => setOsintModalPost(null)} />
     </div>
   )
 }

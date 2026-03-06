@@ -7,6 +7,8 @@ import { useFlightStore } from '@/stores/flight-store'
 import { useAlertStore } from '@/stores/alert-store'
 import { useGeofenceStore } from '@/stores/geofence-store'
 import { useSatelliteStore } from '@/stores/satellite-store'
+import { useAlertRuleStore } from '@/stores/alert-rule-store'
+import { evaluateRule } from '@/lib/rule-engine'
 import type { Geofence } from '@/lib/persistence'
 
 function inBbox(lat: number, lon: number, gf: Geofence): boolean {
@@ -29,6 +31,7 @@ export function useAlertEngine() {
   const flightVersion = useFlightStore(s => s.version)
   const satelliteVersion = useSatelliteStore(s => s.version)
   const geofences = useGeofenceStore(s => s.geofences)
+  const rules = useAlertRuleStore(s => s.rules)
 
   const seenRef = useRef(new Set<string>())
   // Track which entities are inside each geofence for exit detection
@@ -262,4 +265,64 @@ export function useAlertEngine() {
       }
     }
   }, [vesselVersion, flightVersion, satelliteVersion, geofences])
+
+  // Custom alert rules evaluation
+  useEffect(() => {
+    const enabledRules = rules.filter(r => r.enabled)
+    if (enabledRules.length === 0) return
+
+    const addAlert = useAlertStore.getState().addAlert
+    const updateRule = useAlertRuleStore.getState().updateRule
+    const seen = seenRef.current
+
+    // Collect all entities into a flat list for rule evaluation
+    type EntityInfo = { domain: string; id: string; title: string; description: string; lat?: number; lon?: number; severity?: number }
+    const entities: EntityInfo[] = []
+
+    const vessels = useVesselStore.getState().vessels
+    for (const [, v] of vessels) {
+      entities.push({ domain: 'vessel', id: String(v.mmsi), title: v.name || `MMSI ${v.mmsi}`, description: `${v.type} vessel`, lat: v.lat, lon: v.lon })
+    }
+
+    const flights = useFlightStore.getState().flights
+    for (const [, f] of flights) {
+      entities.push({ domain: 'flight', id: f.icao24, title: f.callsign, description: `${f.type} aircraft from ${f.originCountry}`, lat: f.lat, lon: f.lon })
+    }
+
+    const weatherEvents = useWeatherStore.getState().events
+    for (const [, e] of weatherEvents) {
+      entities.push({ domain: 'weather', id: e.id, title: e.title, description: e.type, lat: e.lat, lon: e.lon, severity: e.magnitude ?? undefined })
+    }
+
+    const conflictEvents = useConflictStore.getState().events
+    for (const [, e] of conflictEvents) {
+      entities.push({ domain: 'conflict', id: e.id, title: e.title, description: `${e.type} — ${e.fatalities} fatalities`, lat: e.lat, lon: e.lon, severity: e.fatalities })
+    }
+
+    const cyberEvents = useCyberStore.getState().events
+    for (const [, e] of cyberEvents) {
+      entities.push({ domain: 'cyber', id: e.id, title: e.title, description: e.type, lat: e.lat, lon: e.lon, severity: e.severity })
+    }
+
+    const gfs = useGeofenceStore.getState().geofences
+
+    for (const rule of enabledRules) {
+      for (const entity of entities) {
+        const key = `rule-${rule.id}-${entity.domain}-${entity.id}`
+        if (seen.has(key)) continue
+
+        if (evaluateRule(rule, entity, gfs)) {
+          seen.add(key)
+          addAlert({
+            title: `Rule: ${rule.name}`,
+            description: `${entity.title} — ${entity.description}`,
+            severity: rule.alertSeverity,
+            domain: entity.domain,
+            entityId: entity.id,
+          })
+          updateRule(rule.id, { lastTriggered: Date.now() })
+        }
+      }
+    }
+  }, [rules, vesselVersion, flightVersion, weatherVersion, conflictVersion, cyberVersion])
 }
