@@ -43,7 +43,7 @@ type VizMode = 'standard' | 'nvg' | 'thermal' | 'crt'
 const VIZ_MODE_FILTERS: Record<VizMode, string> = {
   standard: 'none',
   nvg: 'brightness(1.6) contrast(1.3) saturate(0.3) sepia(1) hue-rotate(70deg) saturate(2.5)',
-  thermal: 'grayscale(1) brightness(1.1) contrast(1.5)',
+  thermal: 'grayscale(1) brightness(1.4) contrast(1.3)',
   crt: 'contrast(1.15) brightness(0.9) saturate(1.2)',
 }
 
