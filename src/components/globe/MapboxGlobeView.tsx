@@ -1380,7 +1380,7 @@ export function MapboxGlobeView() {
                 {/* Brightness/Contrast popover */}
                 {hasControls && vizPopoverOpen && (
                   <div
-                    className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 bg-zinc-900/95 border border-zinc-700 rounded-md shadow-xl p-3 z-50 backdrop-blur-sm"
+                    className="absolute top-full left-0 mt-2 w-48 bg-zinc-900/95 border border-zinc-700 rounded-md shadow-xl p-3 z-50 backdrop-blur-sm"
                     onMouseEnter={() => {
                       if (vizPopoverTimeout.current) clearTimeout(vizPopoverTimeout.current)
                     }}
