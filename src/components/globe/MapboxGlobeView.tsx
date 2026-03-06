@@ -13,6 +13,7 @@ import { useConflictStore } from '@/stores/conflict-store'
 import { useCyberStore } from '@/stores/cyber-store'
 import { useOsintStore } from '@/stores/osint-store'
 import { usePortStore } from '@/stores/port-store'
+import { useCameraStore } from '@/stores/camera-store'
 import { useRFStore } from '@/stores/rf-store'
 import { useEconomicStore } from '@/stores/economic-store'
 import { useSelectionStore } from '@/stores/selection-store'
@@ -20,9 +21,12 @@ import { useAppStore } from '@/stores/app-store'
 import { WEATHER_TYPE_DOT_COLORS, NEWS_CATEGORY_DOT_COLORS, CONFLICT_TYPE_DOT_COLORS, CYBER_TYPE_DOT_COLORS, OSINT_PLATFORM_DOT_COLORS, RF_SOURCE_DOT_COLORS, PORT_SIZE_DOT_COLORS, ECONOMIC_INDICATOR_DOT_COLORS } from '@/lib/colors'
 import { CoordinateHUD } from './CoordinateHUD'
 import { MeasurementTool } from './MeasurementTool'
+import { GeofenceTool } from './GeofenceTool'
+import { MapScreenshot } from './MapScreenshot'
 import type { ConstellationId, SatellitePosition, VesselRecord, FlightRecord, VesselType, FlightType, WeatherEvent, WeatherEventType, NewsEvent, NewsCategory, ConflictEvent, ConflictEventType, CyberEvent, CyberEventType, OsintPlatform, RFSpot } from '@/types'
 import type { OsintPost } from '@/lib/osint-client'
 import type { Port } from '@/lib/ports-client'
+import type { Camera } from '@/lib/camera-client'
 import type { EconomicIndicator } from '@/lib/economic-client'
 import type { PositionHistory } from '@/lib/position-history'
 
@@ -383,6 +387,22 @@ function buildEconomicGeoJSON(
         country: ind.country,
         countryCode: ind.countryCode,
       },
+    })
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+function buildCameraGeoJSON(
+  cameras: Map<string, Camera>,
+  visible: boolean,
+): GeoJSONFeatureCollection {
+  if (!visible) return { type: 'FeatureCollection', features: [] }
+  const features: GeoJSON.Feature<GeoJSON.Point>[] = []
+  for (const [, c] of cameras) {
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [c.lon, c.lat] },
+      properties: { cameraId: c.id, title: c.title },
     })
   }
   return { type: 'FeatureCollection', features }
@@ -851,6 +871,25 @@ function addEntityLayers(map: mapboxgl.Map) {
     },
   })
 
+  // --- Cameras (zoom-dependent) ---
+  map.addSource('cameras', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+  })
+  map.addLayer({
+    id: 'cameras-layer',
+    type: 'circle',
+    source: 'cameras',
+    minzoom: 5,
+    paint: {
+      'circle-radius': 4,
+      'circle-color': '#38bdf8',
+      'circle-opacity': 0.7,
+      'circle-stroke-width': 1.5,
+      'circle-stroke-color': '#0ea5e9',
+    },
+  })
+
   // --- Economic indicators ---
   map.addSource('economic', {
     type: 'geojson',
@@ -871,7 +910,7 @@ function addEntityLayers(map: mapboxgl.Map) {
   })
 }
 
-const ENTITY_LAYERS = ['satellites-layer', 'vessels-layer', 'flights-layer', 'weather-events-layer', 'news-events-layer', 'conflict-events-layer', 'cyber-events-layer', 'osint-posts-layer', 'ports-layer', 'rf-stations-layer', 'economic-layer'] as const
+const ENTITY_LAYERS = ['satellites-layer', 'vessels-layer', 'flights-layer', 'weather-events-layer', 'news-events-layer', 'conflict-events-layer', 'cyber-events-layer', 'osint-posts-layer', 'ports-layer', 'rf-stations-layer', 'economic-layer', 'cameras-layer'] as const
 const CLUSTER_LAYERS = ['vessels-cluster', 'flights-cluster', 'weather-events-cluster', 'news-events-cluster', 'conflict-events-cluster', 'cyber-events-cluster', 'osint-posts-cluster'] as const
 
 export function MapboxGlobeView() {
@@ -918,6 +957,9 @@ export function MapboxGlobeView() {
   const econIndicators = useEconomicStore(s => s.indicators)
   const econVersion = useEconomicStore(s => s.version)
   const selectedIndicator = useEconomicStore(s => s.selectedIndicator)
+  const cameraData = useCameraStore(s => s.cameras)
+  const cameraVersion = useCameraStore(s => s.version)
+  const cameraVisible = useCameraStore(s => s.visible)
   const selectedMmsi = useSelectionStore(s => s.selectedMmsi)
   const selectedIcao = useSelectionStore(s => s.selectedIcao)
   const selectedEventId = useSelectionStore(s => s.selectedEventId)
@@ -1231,6 +1273,14 @@ export function MapboxGlobeView() {
     if (src) src.setData(buildEconomicGeoJSON(econIndicators, selectedIndicator))
   }, [econVersion, econIndicators, selectedIndicator])
 
+  // Sync camera data
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+    const src = map.getSource('cameras') as mapboxgl.GeoJSONSource | undefined
+    if (src) src.setData(buildCameraGeoJSON(cameraData, cameraVisible))
+  }, [cameraVersion, cameraData, cameraVisible])
+
   // Sync all data after style change
   useEffect(() => {
     const map = mapRef.current
@@ -1262,11 +1312,13 @@ export function MapboxGlobeView() {
       if (rfSrc) rfSrc.setData(buildRFGeoJSON(rfSpots, rfSourceToggles))
       const econSrc = map.getSource('economic') as mapboxgl.GeoJSONSource | undefined
       if (econSrc) econSrc.setData(buildEconomicGeoJSON(econIndicators, selectedIndicator))
+      const camSrc = map.getSource('cameras') as mapboxgl.GeoJSONSource | undefined
+      if (camSrc) camSrc.setData(buildCameraGeoJSON(cameraData, cameraVisible))
     }
     map.on('style.load', syncAll)
     return () => { map.off('style.load', syncAll) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toggles, getPositions, selectedSatId, satVersion, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory, weatherEvents, selectedEventId, weatherVersion, weatherTypeToggles, newsEvents, selectedNewsId, newsVersion, newsCategoryToggles, conflictEvents, selectedConflictId, conflictVersion, conflictTypeToggles, cyberEvents, selectedCyberId, cyberVersion, cyberTypeToggles, osintPosts, osintVersion, osintPlatformToggles, portData, portVersion, portVisible, rfSpots, rfVersion, rfSourceToggles, econIndicators, econVersion, selectedIndicator, cursorForFilter])
+  }, [toggles, getPositions, selectedSatId, satVersion, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory, weatherEvents, selectedEventId, weatherVersion, weatherTypeToggles, newsEvents, selectedNewsId, newsVersion, newsCategoryToggles, conflictEvents, selectedConflictId, conflictVersion, conflictTypeToggles, cyberEvents, selectedCyberId, cyberVersion, cyberTypeToggles, osintPosts, osintVersion, osintPlatformToggles, portData, portVersion, portVisible, rfSpots, rfVersion, rfSourceToggles, econIndicators, econVersion, selectedIndicator, cameraData, cameraVersion, cameraVisible, cursorForFilter])
 
   return (
     <div className="fixed top-[46px] left-64 right-[272px] bottom-[34px]">
@@ -1294,6 +1346,10 @@ export function MapboxGlobeView() {
       {/* Map overlays */}
       <CoordinateHUD map={mapReady ? mapRef.current : null} />
       <MeasurementTool map={mapReady ? mapRef.current : null} />
+      <GeofenceTool map={mapReady ? mapRef.current : null} />
+      <div className="absolute top-3 left-[180px]">
+        <MapScreenshot map={mapReady ? mapRef.current : null} />
+      </div>
     </div>
   )
 }

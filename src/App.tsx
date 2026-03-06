@@ -10,6 +10,7 @@ import { useOsintInit } from '@/hooks/useOsintInit'
 import { usePortInit } from '@/hooks/usePortInit'
 import { useRFInit } from '@/hooks/useRFInit'
 import { useEconomicInit } from '@/hooks/useEconomicInit'
+import { useCameraInit } from '@/hooks/useCameraInit'
 import { useAlertEngine } from '@/hooks/useAlertEngine'
 import { usePersistence } from '@/hooks/usePersistence'
 import { TopBar } from '@/components/panels/TopBar'
@@ -34,6 +35,7 @@ export default function App() {
   usePortInit()
   useRFInit()
   useEconomicInit()
+  useCameraInit()
   useAlertEngine()
   usePersistence()
 

@@ -5,6 +5,7 @@ import { useCyberStore } from '@/stores/cyber-store'
 import { useVesselStore } from '@/stores/vessel-store'
 import { useFlightStore } from '@/stores/flight-store'
 import { useAlertStore } from '@/stores/alert-store'
+import { useGeofenceStore } from '@/stores/geofence-store'
 
 /**
  * Watches data stores and auto-generates alerts for significant events:
@@ -19,6 +20,7 @@ export function useAlertEngine() {
   const cyberVersion = useCyberStore(s => s.version)
   const vesselVersion = useVesselStore(s => s.version)
   const flightVersion = useFlightStore(s => s.version)
+  const geofences = useGeofenceStore(s => s.geofences)
 
   const seenRef = useRef(new Set<string>())
 
@@ -143,4 +145,48 @@ export function useAlertEngine() {
       })
     }
   }, [flightVersion])
+
+  // Geofence breach alerts (check vessels and flights against geofences)
+  useEffect(() => {
+    if (geofences.length === 0) return
+    const addAlert = useAlertStore.getState().addAlert
+    const seen = seenRef.current
+
+    const vessels = useVesselStore.getState().vessels
+    const flights = useFlightStore.getState().flights
+
+    for (const gf of geofences) {
+      if (!gf.alertOnEnter) continue
+
+      for (const [, v] of vessels) {
+        if (v.lat >= gf.south && v.lat <= gf.north && v.lon >= gf.west && v.lon <= gf.east) {
+          const key = `gf-v-${gf.id}-${v.mmsi}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          addAlert({
+            title: `Vessel in ${gf.name}`,
+            description: `${v.name || `MMSI ${v.mmsi}`} entered geofence zone`,
+            severity: 'warning',
+            domain: 'vessel',
+            entityId: String(v.mmsi),
+          })
+        }
+      }
+
+      for (const [, f] of flights) {
+        if (f.lat >= gf.south && f.lat <= gf.north && f.lon >= gf.west && f.lon <= gf.east) {
+          const key = `gf-f-${gf.id}-${f.icao24}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          addAlert({
+            title: `Aircraft in ${gf.name}`,
+            description: `${f.callsign} entered geofence zone`,
+            severity: 'warning',
+            domain: 'flight',
+            entityId: f.icao24,
+          })
+        }
+      }
+    }
+  }, [vesselVersion, flightVersion, geofences])
 }

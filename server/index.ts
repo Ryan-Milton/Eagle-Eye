@@ -674,6 +674,67 @@ async function handleSanctionsCheck(url: URL): Promise<Response> {
   }
 }
 
+// ─── CAMERA PROXY ───────────────────────────────────────────────────────────
+
+import { parseWindyCameras, parseCameraList } from '../src/lib/camera-client'
+
+const WINDY_KEY = process.env.WINDY_WEBCAMS_KEY ?? ''
+
+interface CameraCacheEntry { cameras: unknown[]; errors: string[]; fetchedAt: number }
+let cameraCache: CameraCacheEntry | null = null
+const CAMERA_CACHE_TTL = 600_000 // 10 min
+
+async function fetchCameras(lat: number, lon: number, radius: number): Promise<{ cameras: unknown[]; errors: string[] }> {
+  if (cameraCache && Date.now() - cameraCache.fetchedAt < CAMERA_CACHE_TTL) {
+    return { cameras: cameraCache.cameras, errors: cameraCache.errors }
+  }
+
+  const cameras: unknown[] = []
+  const errors: string[] = []
+
+  if (WINDY_KEY) {
+    try {
+      const res = await fetch(
+        `https://api.windy.com/webcams/api/v3/webcams?nearby=${lat},${lon},${radius}&limit=100&include=location,image,player`,
+        {
+          headers: { 'x-windy-api-key': WINDY_KEY },
+          signal: AbortSignal.timeout(15_000),
+        },
+      )
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const json = await res.json()
+      cameras.push(...parseWindyCameras(json))
+      console.log(`[Cameras] Windy: ${cameras.length} cameras`)
+    } catch (err) {
+      errors.push(`Windy: ${(err as Error).message}`)
+      console.warn(`[Cameras] Windy failed: ${(err as Error).message}`)
+    }
+  } else {
+    errors.push('Windy: No API key configured (WINDY_WEBCAMS_KEY)')
+  }
+
+  cameraCache = { cameras, errors, fetchedAt: Date.now() }
+  return { cameras, errors }
+}
+
+async function handleCameras(url: URL): Promise<Response> {
+  const lat = parseFloat(url.searchParams.get('lat') ?? '40')
+  const lon = parseFloat(url.searchParams.get('lon') ?? '-74')
+  const radius = parseInt(url.searchParams.get('radius') ?? '5000')
+
+  try {
+    const { cameras, errors } = await fetchCameras(lat, lon, radius)
+    return Response.json({ cameras, errors }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  } catch (err) {
+    console.error('[Cameras] Fetch error:', err)
+    return Response.json({ cameras: [], errors: ['Fetch failed'] }, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+}
+
 // ─── PORTS PROXY ────────────────────────────────────────────────────────────
 
 import { parsePortsGeoJSON, parsePortsList } from '../src/lib/ports-client'
@@ -941,6 +1002,7 @@ Bun.serve<{ path: string }>({
     if (url.pathname === '/api/cyber/events') return handleCyberEvents()
     if (url.pathname === '/api/osint/posts') return handleOsintPosts()
     if (url.pathname === '/api/sanctions/check') return handleSanctionsCheck(url)
+    if (url.pathname === '/api/cameras/nearby') return handleCameras(url)
     if (url.pathname === '/api/ports/data') return handlePorts()
     if (url.pathname === '/api/rf/spots') return handleRFSpots()
     if (url.pathname === '/api/economic/indicators') return handleEconomicIndicators()

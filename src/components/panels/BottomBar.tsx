@@ -1,16 +1,22 @@
 import { useCallback, useRef, useEffect } from 'react'
+import { cn } from '@/lib/utils'
 import { useClock } from '@/hooks/useClock'
 import { useAppStore } from '@/stores/app-store'
 
 const SIX_HOURS = 6 * 60 * 60 * 1000
+const SPEED_OPTIONS = [1, 2, 5, 10]
 
 export function BottomBar() {
   const sessionStart = useAppStore(s => s.sessionStart)
   const timelineStart = useAppStore(s => s.timelineStart)
   const timelineCursor = useAppStore(s => s.timelineCursor)
   const timelineLive = useAppStore(s => s.timelineLive)
+  const timelinePlaying = useAppStore(s => s.timelinePlaying)
+  const timelineSpeed = useAppStore(s => s.timelineSpeed)
   const setTimelineCursor = useAppStore(s => s.setTimelineCursor)
   const setTimelineLive = useAppStore(s => s.setTimelineLive)
+  const setTimelinePlaying = useAppStore(s => s.setTimelinePlaying)
+  const setTimelineSpeed = useAppStore(s => s.setTimelineSpeed)
   const { elapsed, nextUpdate } = useClock(sessionStart)
   const trackRef = useRef<HTMLDivElement>(null)
 
@@ -22,6 +28,23 @@ export function BottomBar() {
     }, 1000)
     return () => clearInterval(id)
   }, [timelineLive])
+
+  // Replay playback — advance cursor forward when playing
+  useEffect(() => {
+    if (!timelinePlaying || timelineLive) return
+    const intervalMs = 100
+    const id = setInterval(() => {
+      const state = useAppStore.getState()
+      const advance = (intervalMs * state.timelineSpeed * 60) // speed multiplier scales minutes
+      const newCursor = state.timelineCursor + advance
+      if (newCursor >= Date.now()) {
+        setTimelineLive(true)
+      } else {
+        useAppStore.setState({ timelineCursor: newCursor })
+      }
+    }, 100)
+    return () => clearInterval(id)
+  }, [timelinePlaying, timelineLive, setTimelineLive])
 
   const now = Date.now()
   const range = now - timelineStart
@@ -35,7 +58,6 @@ export function BottomBar() {
     const now = Date.now()
     const start = now - SIX_HOURS
     const cursor = start + pct * SIX_HOURS
-    // If scrubbing to within 10s of now, snap to live
     if (now - cursor < 10_000) {
       setTimelineLive(true)
     } else {
@@ -54,7 +76,6 @@ export function BottomBar() {
     window.addEventListener('mouseup', onUp)
   }, [handleScrub])
 
-  // Format cursor offset from now
   const cursorOffset = now - timelineCursor
   const cursorLabel = timelineLive
     ? 'LIVE'
@@ -64,15 +85,51 @@ export function BottomBar() {
         ? `T-${Math.floor(cursorOffset / 60_000)}m`
         : `T-${(cursorOffset / 3_600_000).toFixed(1)}h`
 
+  const togglePlayPause = useCallback(() => {
+    if (timelineLive) {
+      // Start replay from 6 hours ago
+      const start = Date.now() - SIX_HOURS
+      setTimelineCursor(start)
+      setTimelinePlaying(true)
+    } else {
+      setTimelinePlaying(!timelinePlaying)
+    }
+  }, [timelineLive, timelinePlaying, setTimelineCursor, setTimelinePlaying])
+
+  const cycleSpeed = useCallback(() => {
+    const idx = SPEED_OPTIONS.indexOf(timelineSpeed)
+    const next = SPEED_OPTIONS[(idx + 1) % SPEED_OPTIONS.length]
+    setTimelineSpeed(next)
+  }, [timelineSpeed, setTimelineSpeed])
+
   return (
     <footer className="fixed bottom-0 left-0 right-0 h-[34px] bg-zinc-900 border-t border-zinc-800 flex items-center pl-3.5 z-50">
 
       <div className="flex items-center gap-1.5 pr-3.5 border-r border-zinc-800 font-mono text-[12px] text-zinc-600 whitespace-nowrap h-full">
-        MODE <span className="text-zinc-400">REALTIME</span>
+        MODE <span className="text-zinc-400">{timelineLive ? 'REALTIME' : timelinePlaying ? 'REPLAY' : 'PAUSED'}</span>
       </div>
-      <div className="flex items-center gap-1.5 px-3.5 border-r border-zinc-800 font-mono text-[12px] text-zinc-600 whitespace-nowrap h-full">
-        SOURCE <span className="text-orange-400">CELESTRAK</span> / <span className="text-cyan-400">AIS</span>
+
+      {/* Play/Pause + Speed */}
+      <div className="flex items-center h-full border-r border-zinc-800">
+        <button
+          onClick={togglePlayPause}
+          className="px-2.5 h-full font-mono text-[12px] text-zinc-500 hover:text-zinc-300 transition-colors"
+          title={timelinePlaying ? 'Pause' : 'Play'}
+        >
+          {timelinePlaying && !timelineLive ? '⏸' : '▶'}
+        </button>
+        <button
+          onClick={cycleSpeed}
+          className={cn(
+            'px-2 h-full font-mono text-[11px] transition-colors',
+            timelineSpeed > 1 ? 'text-orange-400' : 'text-zinc-600 hover:text-zinc-400',
+          )}
+          title="Playback speed"
+        >
+          {timelineSpeed}x
+        </button>
       </div>
+
       <div className="flex items-center gap-1.5 px-3.5 border-r border-zinc-800 font-mono text-[12px] text-zinc-600 whitespace-nowrap h-full">
         T+ <span className="text-zinc-400">{elapsed}</span>
       </div>

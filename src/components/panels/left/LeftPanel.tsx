@@ -11,9 +11,10 @@ import { OsintSection } from './OsintSection'
 import { PortSection } from './PortSection'
 import { RFSection } from './RFSection'
 import { EconomicSection } from './EconomicSection'
+import { CameraSection } from './CameraSection'
 import { SearchResults } from './SearchResults'
 
-type SectionId = 'satellites' | 'maritime' | 'aircraft' | 'weather' | 'news' | 'conflicts' | 'cyber' | 'osint' | 'ports' | 'rf' | 'economic'
+type SectionId = 'satellites' | 'maritime' | 'aircraft' | 'weather' | 'news' | 'conflicts' | 'cyber' | 'osint' | 'ports' | 'rf' | 'economic' | 'cameras'
 
 export function LeftPanel() {
   const [expandedSections, setExpandedSections] = useState<Set<SectionId>>(new Set())
@@ -53,6 +54,7 @@ export function LeftPanel() {
             <PortSection expanded={expandedSections.has('ports')} onToggle={() => toggleSection('ports')} />
             <RFSection expanded={expandedSections.has('rf')} onToggle={() => toggleSection('rf')} />
             <EconomicSection expanded={expandedSections.has('economic')} onToggle={() => toggleSection('economic')} />
+            <CameraSection expanded={expandedSections.has('cameras')} onToggle={() => toggleSection('cameras')} />
           </>
         )}
       </div>
