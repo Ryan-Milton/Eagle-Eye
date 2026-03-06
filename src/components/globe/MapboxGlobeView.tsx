@@ -1333,14 +1333,14 @@ export function MapboxGlobeView() {
         </div>
 
         {/* Visualization mode toggle */}
-        <div className="relative flex rounded-md overflow-visible border border-zinc-700 bg-zinc-900/90 backdrop-blur-sm">
+        <div className="relative flex rounded-md overflow-hidden border border-zinc-700 bg-zinc-900/90 backdrop-blur-sm">
           {(['standard', 'nvg', 'thermal', 'crt'] as const).map((mode, i) => {
             const isActive = vizMode === mode
             const hasControls = isActive && (mode === 'nvg' || mode === 'thermal')
             return (
               <div
                 key={mode}
-                className="relative"
+                className="relative overflow-visible"
                 onMouseEnter={() => {
                   if (hasControls) {
                     if (vizPopoverTimeout.current) clearTimeout(vizPopoverTimeout.current)
@@ -1364,7 +1364,7 @@ export function MapboxGlobeView() {
                     else if (mode === 'thermal') { setVizBrightness(1.4); setVizContrast(1.3) }
                   }}
                   className={cn(
-                    'px-2 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors',
+                    'w-16 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors text-center',
                     isActive
                       ? mode === 'nvg' ? 'bg-green-500/20 text-green-400'
                         : mode === 'thermal' ? 'bg-red-500/20 text-red-400'
