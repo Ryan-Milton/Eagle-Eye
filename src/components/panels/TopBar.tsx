@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from 'react'
 import { Pip } from '@/components/ui/Pip'
 import { useClock } from '@/hooks/useClock'
 import { useAppStore } from '@/stores/app-store'
@@ -19,8 +20,43 @@ import type { NavView } from '@/types'
 
 const NAV_VIEWS: NavView[] = ['Globe', 'Objects', 'Graph', 'Signals', 'Reports']
 
+interface RegionPreset {
+  label: string
+  center: [number, number]
+  zoom: number
+}
+
+const REGION_PRESETS: RegionPreset[] = [
+  { label: 'Ukraine / Black Sea',      center: [34.0, 47.0],    zoom: 5 },
+  { label: 'Middle East',              center: [44.0, 31.0],    zoom: 4 },
+  { label: 'Strait of Hormuz',         center: [56.3, 26.5],    zoom: 7 },
+  { label: 'Suez Canal',               center: [32.3, 30.5],    zoom: 8 },
+  { label: 'South China Sea',          center: [114.0, 12.0],   zoom: 5 },
+  { label: 'Taiwan Strait',            center: [119.5, 24.0],   zoom: 6 },
+  { label: 'Horn of Africa / Red Sea', center: [45.0, 12.5],    zoom: 5 },
+  { label: 'Baltic Sea / NATO Flank',  center: [20.5, 58.0],    zoom: 5 },
+  { label: 'Korean Peninsula',         center: [127.5, 37.5],   zoom: 6 },
+  { label: 'Arctic',                   center: [0, 80],         zoom: 3 },
+  { label: 'Mediterranean',            center: [18.0, 36.0],    zoom: 4 },
+  { label: 'Gulf of Guinea',           center: [3.0, 3.0],      zoom: 5 },
+]
+
 export function TopBar() {
-  const { activeView, setActiveView, sessionStart } = useAppStore()
+  const { activeView, setActiveView, sessionStart, flyTo } = useAppStore()
+  const [regionsOpen, setRegionsOpen] = useState(false)
+  const regionsRef = useRef<HTMLDivElement>(null)
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!regionsOpen) return
+    const handleClick = (e: MouseEvent) => {
+      if (regionsRef.current && !regionsRef.current.contains(e.target as Node)) {
+        setRegionsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [regionsOpen])
   const { time, date } = useClock(sessionStart)
   const getStats = useSatelliteStore(s => s.getStats)
   const vesselCount = useVesselStore(s => s.count)
@@ -88,6 +124,38 @@ export function TopBar() {
           </button>
         ))}
       </nav>
+
+      {/* Regions dropdown */}
+      <div ref={regionsRef} className="relative h-full">
+        <button
+          onClick={() => setRegionsOpen(!regionsOpen)}
+          className={[
+            'font-display text-xs font-medium tracking-[2px] uppercase px-4 h-full',
+            'border-r border-zinc-800 border-b-2 transition-colors',
+            regionsOpen
+              ? 'text-zinc-50 border-b-teal-500'
+              : 'text-zinc-600 border-b-transparent hover:text-zinc-400',
+          ].join(' ')}
+        >
+          Regions
+        </button>
+        {regionsOpen && (
+          <div className="absolute top-full left-0 mt-0 w-56 bg-zinc-900 border border-zinc-700 rounded-b-md shadow-xl z-50 py-1 max-h-[400px] overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
+            {REGION_PRESETS.map(region => (
+              <button
+                key={region.label}
+                onClick={() => {
+                  flyTo(region.center, region.zoom)
+                  setRegionsOpen(false)
+                }}
+                className="w-full text-left px-3 py-1.5 font-mono text-[11px] text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors"
+              >
+                {region.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Right side */}
       <div className="flex items-center ml-auto h-full">

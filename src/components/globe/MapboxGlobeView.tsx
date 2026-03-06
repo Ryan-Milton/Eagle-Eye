@@ -792,6 +792,8 @@ export function MapboxGlobeView() {
   const selectedCameraId = useSelectionStore(s => s.selectedCameraId)
   const timelineCursor = useAppStore(s => s.timelineCursor)
   const timelineLive = useAppStore(s => s.timelineLive)
+  const flyToTarget = useAppStore(s => s.flyToTarget)
+  const clearFlyTo = useAppStore(s => s.clearFlyTo)
 
   // Initialize map once
   useEffect(() => {
@@ -941,6 +943,14 @@ export function MapboxGlobeView() {
     map.on('style.load', onStyleLoad)
     return () => { map.off('style.load', onStyleLoad) }
   }, [mapStyle])
+
+  // --- Fly-to from region presets ---
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !flyToTarget) return
+    map.flyTo({ center: flyToTarget.center, zoom: flyToTarget.zoom, speed: 1.2 })
+    clearFlyTo()
+  }, [flyToTarget, clearFlyTo])
 
   // --- Fly-to on entity selection ---
   useEffect(() => {
