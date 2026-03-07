@@ -55,8 +55,10 @@ export function computeGroundTrack(
 }
 
 /**
- * Split a ground track into line segments, breaking at the antimeridian
- * (longitude jumps > 180°) to avoid lines crossing the globe.
+ * Split a ground track into line segments, breaking only at antimeridian
+ * crossings (where longitude wraps from +180 to -180 or vice versa).
+ * Detected when consecutive points are on opposite sides of ±180 and the
+ * raw difference exceeds 180°.
  */
 export function splitAtAntimeridian(points: OrbitalPoint[]): OrbitalPoint[][] {
   if (points.length === 0) return []
@@ -66,7 +68,10 @@ export function splitAtAntimeridian(points: OrbitalPoint[]): OrbitalPoint[][] {
   for (let i = 1; i < points.length; i++) {
     const prev = points[i - 1]
     const curr = points[i]
-    if (Math.abs(curr.lon - prev.lon) > 50) {
+    // True antimeridian crossing: signs differ and the short-way-around distance > 180°
+    const crossesAntimeridian =
+      (prev.lon > 90 && curr.lon < -90) || (prev.lon < -90 && curr.lon > 90)
+    if (crossesAntimeridian) {
       segments.push([curr])
     } else {
       segments[segments.length - 1].push(curr)
