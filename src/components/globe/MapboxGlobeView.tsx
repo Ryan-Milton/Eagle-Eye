@@ -1193,8 +1193,11 @@ export function MapboxGlobeView() {
 
     if (trackSrc) trackSrc.setData({ type: 'FeatureCollection', features: trackFeatures })
 
-    // Compute footprint from current position
-    const currentPos = track[0]
+    // Compute footprint from current position (closest point to now)
+    const now = Date.now()
+    const currentPos = track.reduce((best, p) =>
+      Math.abs(p.time - now) < Math.abs(best.time - now) ? p : best
+    , track[0])
     if (currentPos && footSrc) {
       const ring = computeFootprint(currentPos.lat, currentPos.lon, currentPos.alt)
       footSrc.setData({
