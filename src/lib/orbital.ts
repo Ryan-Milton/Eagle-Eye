@@ -66,7 +66,7 @@ export function splitAtAntimeridian(points: OrbitalPoint[]): OrbitalPoint[][] {
   for (let i = 1; i < points.length; i++) {
     const prev = points[i - 1]
     const curr = points[i]
-    if (Math.abs(curr.lon - prev.lon) > 180) {
+    if (Math.abs(curr.lon - prev.lon) > 90) {
       segments.push([curr])
     } else {
       segments[segments.length - 1].push(curr)
