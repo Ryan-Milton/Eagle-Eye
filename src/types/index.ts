@@ -249,15 +249,15 @@ export interface RFSpot {
 
 // ─── OSINT ────────────────────────────────────────────────────────────────
 
-export type OsintPlatform = 'reddit' | 'mastodon' | 'bluesky' | 'telegram'
+export type OsintPlatform = 'reddit' | 'mastodon' | 'bluesky' | 'x'
 
-export const OSINT_PLATFORMS: OsintPlatform[] = ['reddit', 'mastodon', 'bluesky', 'telegram']
+export const OSINT_PLATFORMS: OsintPlatform[] = ['reddit', 'mastodon', 'bluesky', 'x']
 
 export const OSINT_PLATFORM_LABELS: Record<OsintPlatform, string> = {
   reddit: 'Reddit',
   mastodon: 'Mastodon',
   bluesky: 'Bluesky',
-  telegram: 'Telegram',
+  x: '𝕏',
 }
 
 export interface VesselRecord {

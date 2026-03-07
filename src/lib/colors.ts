@@ -101,11 +101,11 @@ export const OSINT_PLATFORM_COLORS: Record<string, string> = {
   reddit: 'text-orange-400 border-orange-800/60 bg-orange-950/40',
   mastodon: 'text-indigo-400 border-indigo-800/60 bg-indigo-950/40',
   bluesky: 'text-sky-400 border-sky-800/60 bg-sky-950/40',
-  telegram: 'text-blue-400 border-blue-800/60 bg-blue-950/40',
+  x: 'text-zinc-300 border-zinc-600/60 bg-zinc-900/40',
 }
 
 export const OSINT_PLATFORM_DOT_COLORS: Record<string, string> = {
-  reddit: '#fb923c', mastodon: '#818cf8', bluesky: '#38bdf8', telegram: '#60a5fa',
+  reddit: '#fb923c', mastodon: '#818cf8', bluesky: '#38bdf8', x: '#d4d4d8',
 }
 
 // ─── Ports ───────────────────────────────────────────────────────────────
@@ -175,7 +175,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   reddit: 'Reddit',
   mastodon: 'Mastodon',
   bluesky: 'Bluesky',
-  telegram: 'Telegram',
+  x: '𝕏',
 }
 
 // ─── Economic ────────────────────────────────────────────────────────────
