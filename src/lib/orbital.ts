@@ -24,12 +24,14 @@ export function computeGroundTrack(
   satrec: Parameters<typeof propagate>[0],
   durationMin = 90,
   stepSec = 30,
+  pastMin = 15,
 ): OrbitalPoint[] {
   const points: OrbitalPoint[] = []
   const now = Date.now()
-  const steps = Math.ceil((durationMin * 60) / stepSec)
+  const pastSteps = Math.ceil((pastMin * 60) / stepSec)
+  const futureSteps = Math.ceil((durationMin * 60) / stepSec)
 
-  for (let i = 0; i <= steps; i++) {
+  for (let i = -pastSteps; i <= futureSteps; i++) {
     const t = new Date(now + i * stepSec * 1000)
     try {
       const pv = propagate(satrec, t)

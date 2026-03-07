@@ -1095,6 +1095,45 @@ export function MapboxGlobeView() {
   // Use timeline cursor only when not live
   const cursorForFilter = timelineLive ? undefined : timelineCursor
 
+  // Dim non-selected nodes when any entity is selected
+  const hasSelection = selectedSatId !== null || selectedMmsi !== null || selectedIcao !== null ||
+    selectedEventId !== null || selectedNewsId !== null || selectedConflictId !== null ||
+    selectedCyberId !== null || selectedRFId !== null || selectedCameraId !== null
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+
+    // Layers that use 'selected' property on features
+    const circleLayers = ['vessels-layer', 'flights-layer', 'weather-events-layer', 'news-events-layer', 'conflict-events-layer', 'cyber-events-layer', 'rf-stations-layer', 'cameras-layer']
+    const dimOpacity = 0.12
+    const normalOpacity = 0.7
+
+    for (const layerId of circleLayers) {
+      if (!map.getLayer(layerId)) continue
+      if (hasSelection) {
+        map.setPaintProperty(layerId, 'circle-opacity', ['case', ['get', 'selected'], 1, dimOpacity])
+      } else {
+        map.setPaintProperty(layerId, 'circle-opacity', ['case', ['get', 'selected'], 1, normalOpacity])
+      }
+    }
+
+    // Satellite symbol layer
+    if (map.getLayer('satellites-layer')) {
+      if (hasSelection) {
+        map.setPaintProperty('satellites-layer', 'icon-opacity', ['case', ['get', 'selected'], 1, dimOpacity])
+      } else {
+        map.setPaintProperty('satellites-layer', 'icon-opacity', ['case', ['get', 'selected'], 1, 0.7])
+      }
+    }
+
+    // OSINT and ports don't have 'selected' property — dim them uniformly
+    for (const layerId of ['osint-posts-layer', 'ports-layer']) {
+      if (!map.getLayer(layerId)) continue
+      map.setPaintProperty(layerId, 'circle-opacity', hasSelection ? dimOpacity : normalOpacity)
+    }
+  }, [hasSelection, selectedSatId, selectedMmsi, selectedIcao, selectedEventId, selectedNewsId, selectedConflictId, selectedCyberId, selectedRFId, selectedCameraId])
+
   // Sync satellite data
   useEffect(() => {
     const map = mapRef.current
