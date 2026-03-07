@@ -1000,14 +1000,19 @@ export function MapboxGlobeView() {
     clearFlyTo()
   }, [flyToTarget, clearFlyTo])
 
-  // --- Fly-to on entity selection ---
+  // --- Fly-to on entity selection (once per selection change) ---
+  const lastFlyToRef = useRef<string | null>(null)
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
 
+    // Build a key representing the current selection
+    const selKey = `${selectedSatId}|${selectedMmsi}|${selectedIcao}|${selectedEventId}|${selectedNewsId}|${selectedConflictId}|${selectedCyberId}|${selectedRFId}|${selectedCameraId}`
+    if (selKey === lastFlyToRef.current) return
+    lastFlyToRef.current = selKey
+
     // Satellite selected
     if (selectedSatId !== null) {
-      // Find position from all enabled constellations
       for (const [id, enabled] of toggles) {
         if (!enabled) continue
         const pos = getPositions(id).find(p => p.noradId === selectedSatId)
