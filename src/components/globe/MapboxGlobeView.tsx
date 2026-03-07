@@ -17,6 +17,7 @@ import { usePortStore } from '@/stores/port-store'
 import { useCameraStore } from '@/stores/camera-store'
 import { useRFStore } from '@/stores/rf-store'
 // import { useEconomicStore } from '@/stores/economic-store'
+import { useInfrastructureStore, INFRASTRUCTURE_COLORS, type InfrastructureLayerType } from '@/stores/infrastructure-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { useAppStore } from '@/stores/app-store'
 import { WEATHER_TYPE_DOT_COLORS, NEWS_CATEGORY_DOT_COLORS, CONFLICT_TYPE_DOT_COLORS, CYBER_TYPE_DOT_COLORS, OSINT_PLATFORM_DOT_COLORS, RF_SOURCE_DOT_COLORS, PORT_SIZE_DOT_COLORS } from '@/lib/colors'
@@ -754,6 +755,42 @@ function addEntityLayers(map: mapboxgl.Map) {
     },
   })
 
+  // --- Infrastructure overlays ---
+  // Undersea cables
+  map.addSource('infra-cables', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({
+    id: 'infra-cables-layer', type: 'line', source: 'infra-cables',
+    paint: { 'line-color': INFRASTRUCTURE_COLORS.cables, 'line-width': 1.5, 'line-opacity': 0.6 },
+  })
+
+  // Pipelines
+  map.addSource('infra-pipelines', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({
+    id: 'infra-pipelines-layer', type: 'line', source: 'infra-pipelines',
+    paint: { 'line-color': INFRASTRUCTURE_COLORS.pipelines, 'line-width': 2, 'line-opacity': 0.6, 'line-dasharray': [6, 3] },
+  })
+
+  // Nuclear facilities
+  map.addSource('infra-nuclear', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({
+    id: 'infra-nuclear-layer', type: 'circle', source: 'infra-nuclear',
+    paint: {
+      'circle-radius': 4, 'circle-color': INFRASTRUCTURE_COLORS.nuclear,
+      'circle-opacity': 0.8, 'circle-stroke-width': 2, 'circle-stroke-color': INFRASTRUCTURE_COLORS.nuclear, 'circle-stroke-opacity': 0.4,
+    },
+  })
+
+  // Maritime chokepoints
+  map.addSource('infra-chokepoints', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({
+    id: 'infra-chokepoints-fill', type: 'fill', source: 'infra-chokepoints',
+    paint: { 'fill-color': INFRASTRUCTURE_COLORS.chokepoints, 'fill-opacity': 0.1 },
+  })
+  map.addLayer({
+    id: 'infra-chokepoints-outline', type: 'line', source: 'infra-chokepoints',
+    paint: { 'line-color': INFRASTRUCTURE_COLORS.chokepoints, 'line-width': 1.5, 'line-opacity': 0.5 },
+  })
+
   // --- Economic indicators (disabled) ---
   // map.addSource('economic', {
   //   type: 'geojson',
@@ -830,6 +867,7 @@ export function MapboxGlobeView() {
   const cameraData = useCameraStore(s => s.cameras)
   const cameraVersion = useCameraStore(s => s.version)
   const cameraVisible = useCameraStore(s => s.visible)
+  const infraToggles = useInfrastructureStore(s => s.toggles)
   const selectedMmsi = useSelectionStore(s => s.selectedMmsi)
   const selectedIcao = useSelectionStore(s => s.selectedIcao)
   const selectedEventId = useSelectionStore(s => s.selectedEventId)
@@ -1313,6 +1351,52 @@ export function MapboxGlobeView() {
     const src = map.getSource('cameras') as mapboxgl.GeoJSONSource | undefined
     if (src) src.setData(buildCameraGeoJSON(cameraData, cameraVisible))
   }, [cameraVersion, cameraData, cameraVisible])
+
+  // Sync infrastructure overlays
+  const infraCacheRef = useRef<Map<InfrastructureLayerType, GeoJSON.FeatureCollection>>(new Map())
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+
+    const empty: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
+    const layerSourceMap: Record<InfrastructureLayerType, string> = {
+      cables: 'infra-cables',
+      pipelines: 'infra-pipelines',
+      nuclear: 'infra-nuclear',
+      chokepoints: 'infra-chokepoints',
+    }
+    const fileMap: Record<InfrastructureLayerType, string> = {
+      cables: '/data/undersea-cables.geojson',
+      pipelines: '/data/pipelines.geojson',
+      nuclear: '/data/nuclear-facilities.geojson',
+      chokepoints: '/data/chokepoints.geojson',
+    }
+
+    for (const [layer, enabled] of infraToggles) {
+      const src = map.getSource(layerSourceMap[layer]) as mapboxgl.GeoJSONSource | undefined
+      if (!src) continue
+
+      if (!enabled) {
+        src.setData(empty)
+        continue
+      }
+
+      // Load and cache GeoJSON on first enable
+      const cached = infraCacheRef.current.get(layer)
+      if (cached) {
+        src.setData(cached)
+      } else {
+        fetch(fileMap[layer])
+          .then(r => r.json())
+          .then((geojson: GeoJSON.FeatureCollection) => {
+            infraCacheRef.current.set(layer, geojson)
+            const s = map.getSource(layerSourceMap[layer]) as mapboxgl.GeoJSONSource | undefined
+            if (s && infraToggles.get(layer)) s.setData(geojson)
+          })
+          .catch(err => console.warn(`[Infrastructure] Failed to load ${layer}:`, err))
+      }
+    }
+  }, [infraToggles])
 
   // Camera feed popup
   useEffect(() => {

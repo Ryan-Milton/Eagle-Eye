@@ -12,9 +12,10 @@ import { PortSection } from './PortSection'
 import { RFSection } from './RFSection'
 // import { EconomicSection } from './EconomicSection'
 import { CameraSection } from './CameraSection'
+import { InfrastructureSection } from './InfrastructureSection'
 import { SearchResults } from './SearchResults'
 
-type SectionId = 'satellites' | 'maritime' | 'aircraft' | 'weather' | 'news' | 'conflicts' | 'cyber' | 'osint' | 'ports' | 'rf' | 'economic' | 'cameras'
+type SectionId = 'satellites' | 'maritime' | 'aircraft' | 'weather' | 'news' | 'conflicts' | 'cyber' | 'osint' | 'ports' | 'rf' | 'economic' | 'cameras' | 'infrastructure'
 
 const STORAGE_KEY = 'eagle-eye-expanded-sections'
 
@@ -70,6 +71,7 @@ export function LeftPanel() {
             <RFSection expanded={expandedSections.has('rf')} onToggle={() => toggleSection('rf')} />
             {/* <EconomicSection expanded={expandedSections.has('economic')} onToggle={() => toggleSection('economic')} /> */}
             <CameraSection expanded={expandedSections.has('cameras')} onToggle={() => toggleSection('cameras')} />
+            <InfrastructureSection expanded={expandedSections.has('infrastructure')} onToggle={() => toggleSection('infrastructure')} />
           </>
         )}
       </div>

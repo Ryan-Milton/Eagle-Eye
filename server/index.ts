@@ -700,7 +700,7 @@ async function handleCyberEvents(): Promise<Response> {
 
 // ─── OSINT PROXY ─────────────────────────────────────────────────────────────
 
-import { parseRedditPosts, parseMastodonPosts, parseBlueskyPosts } from '../src/lib/osint-client'
+import { parseRedditPosts, parseMastodonPosts, parseBlueskyPosts, parseTelegramPosts } from '../src/lib/osint-client'
 
 interface OsintCacheEntry { posts: unknown[]; errors: string[]; fetchedAt: number }
 let osintCache: OsintCacheEntry | null = null
@@ -734,11 +734,25 @@ async function fetchOsintPosts(): Promise<{ posts: unknown[]; errors: string[] }
           .catch(() => [] as ReturnType<typeof parseBlueskyPosts>)
       )
     ).then(arrays => arrays.flat()),
+    // Telegram — requires TELEGRAM_BOT_TOKEN in .env
+    ...(process.env.TELEGRAM_BOT_TOKEN ? [
+      Promise.all(
+        // OSINT-relevant public channels
+        (process.env.TELEGRAM_CHANNELS ?? '-1001263691966,-1001234567890').split(',').map(chatId =>
+          fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getUpdates?chat_id=${chatId}&limit=20`, {
+            signal: AbortSignal.timeout(10_000),
+          })
+            .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+            .then((json: { result?: unknown[] }) => parseTelegramPosts(json.result ?? []))
+            .catch(() => [] as ReturnType<typeof parseTelegramPosts>)
+        )
+      ).then(arrays => arrays.flat()),
+    ] : []),
   ])
 
   const posts: unknown[] = []
   const errors: string[] = []
-  const sourceNames = ['Reddit', 'Mastodon', 'Bluesky']
+  const sourceNames = ['Reddit', 'Mastodon', 'Bluesky', ...(process.env.TELEGRAM_BOT_TOKEN ? ['Telegram'] : [])]
   for (let i = 0; i < results.length; i++) {
     const result = results[i]
     if (result.status === 'fulfilled') posts.push(...result.value)

@@ -26,7 +26,7 @@ export interface OsintComment {
 
 export interface OsintPost {
   id: string
-  platform: 'reddit' | 'mastodon' | 'bluesky'
+  platform: 'reddit' | 'mastodon' | 'bluesky' | 'telegram'
   author: string
   text: string
   fullText: string
@@ -292,6 +292,79 @@ export function parseBlueskyPosts(json: unknown): OsintPost[] {
       commentCount: item.replyCount,
       repostCount: item.repostCount,
       tags: tags.length ? tags : undefined,
+    })
+  }
+
+  return posts
+}
+
+/**
+ * Parse Telegram channel messages from the server proxy.
+ * Server fetches from public Telegram channel RSS bridges or Bot API.
+ */
+export function parseTelegramPosts(json: unknown): OsintPost[] {
+  const data = json as Array<{
+    id?: number | string
+    text?: string
+    date?: number | string
+    chat?: { title?: string; username?: string }
+    photo?: Array<{ file_id?: string }>
+    video?: { file_id?: string }
+    entities?: Array<{ type?: string; url?: string }>
+  }>
+
+  if (!Array.isArray(data)) return []
+
+  const posts: OsintPost[] = []
+  for (const msg of data) {
+    const text = msg.text ?? ''
+    if (!text || text.length < 10) continue
+    const locations = extractLocations(text)
+    if (locations.length === 0) continue
+
+    const loc = locations[0]
+    const author = msg.chat?.username ?? msg.chat?.title ?? 'telegram'
+
+    // Extract media
+    const media: OsintMedia[] = []
+    if (msg.photo?.length) {
+      media.push({ type: 'image', url: msg.photo[msg.photo.length - 1].file_id ?? '' })
+    }
+    if (msg.video?.file_id) {
+      media.push({ type: 'video', url: msg.video.file_id })
+    }
+
+    // Extract link cards from entities
+    let linkCard: OsintLinkCard | undefined
+    if (msg.entities) {
+      for (const ent of msg.entities) {
+        if (ent.type === 'url' && ent.url) {
+          linkCard = { url: ent.url, title: '', description: '' }
+          break
+        }
+      }
+    }
+
+    const time = typeof msg.date === 'number'
+      ? msg.date * 1000
+      : typeof msg.date === 'string'
+        ? new Date(msg.date).getTime()
+        : Date.now()
+
+    posts.push({
+      id: `tg-${msg.id ?? Math.random().toString(36).slice(2)}`,
+      platform: 'telegram',
+      author,
+      text: text.slice(0, 200),
+      fullText: text,
+      url: msg.chat?.username ? `https://t.me/${msg.chat.username}` : '',
+      lat: loc.lat,
+      lon: loc.lon,
+      locationName: loc.name,
+      time,
+      lastUpdate: Date.now(),
+      media,
+      linkCard,
     })
   }
 

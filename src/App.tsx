@@ -12,6 +12,7 @@ import { useRFInit } from '@/hooks/useRFInit'
 import { useEconomicInit } from '@/hooks/useEconomicInit'
 import { useCameraInit } from '@/hooks/useCameraInit'
 import { useAlertEngine } from '@/hooks/useAlertEngine'
+import { useDarkVesselDetection } from '@/hooks/useDarkVesselDetection'
 import { usePersistence } from '@/hooks/usePersistence'
 import { AlertToastContainer } from '@/components/ui/AlertToast'
 import { TopBar } from '@/components/panels/TopBar'
@@ -38,6 +39,7 @@ export default function App() {
   useEconomicInit()
   useCameraInit()
   useAlertEngine()
+  useDarkVesselDetection()
   usePersistence()
 
   const activeView = useAppStore(s => s.activeView)
