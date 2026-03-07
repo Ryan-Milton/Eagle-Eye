@@ -13,10 +13,15 @@ export function ConfidencePip({ level, className }: ConfidencePipProps) {
       <Tooltip>
         <TooltipTrigger asChild>
           <span className={cn(
-            'inline-block w-1.5 h-1.5 rounded-full flex-shrink-0',
+            'relative inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 cursor-help',
             CONFIDENCE_COLORS[level],
             className,
-          )} />
+          )}>
+            <span className={cn(
+              'absolute inset-0 rounded-full animate-ping opacity-50',
+              CONFIDENCE_COLORS[level],
+            )} />
+          </span>
         </TooltipTrigger>
         <TooltipContent>{CONFIDENCE_LABELS[level]}</TooltipContent>
       </Tooltip>

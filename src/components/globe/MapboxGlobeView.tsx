@@ -4,6 +4,7 @@ import 'mapbox-gl/dist/mapbox-gl.css'
 import { cn } from '@/lib/utils'
 import { CONSTELLATIONS } from '@/data/constellations'
 import { displayRadius } from '@/lib/propagation-kernel'
+import { computeGroundTrack, splitAtAntimeridian, computeFootprint } from '@/lib/orbital'
 import { useSatelliteStore } from '@/stores/satellite-store'
 import { useVesselStore } from '@/stores/vessel-store'
 import { useFlightStore } from '@/stores/flight-store'
@@ -481,6 +482,48 @@ function addEntityLayers(map: mapboxgl.Map) {
     } as mapboxgl.SymbolLayerSpecification['paint'],
   })
 
+  // --- Orbital track (ground track line for selected satellite) ---
+  map.addSource('orbital-track', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+  })
+  map.addLayer({
+    id: 'orbital-track-layer',
+    type: 'line',
+    source: 'orbital-track',
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': 1.5,
+      'line-opacity': 0.7,
+      'line-dasharray': [4, 3],
+    },
+  })
+
+  // --- Sensor footprint (coverage circle for selected satellite) ---
+  map.addSource('sat-footprint', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+  })
+  map.addLayer({
+    id: 'sat-footprint-fill',
+    type: 'fill',
+    source: 'sat-footprint',
+    paint: {
+      'fill-color': ['get', 'color'],
+      'fill-opacity': 0.08,
+    },
+  })
+  map.addLayer({
+    id: 'sat-footprint-outline',
+    type: 'line',
+    source: 'sat-footprint',
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': 1,
+      'line-opacity': 0.4,
+    },
+  })
+
   // --- Vessels ---
   map.addSource('vessels', {
     type: 'geojson',
@@ -749,6 +792,7 @@ export function MapboxGlobeView() {
   // Read from stores
   const toggles = useSatelliteStore(s => s.toggles)
   const getPositions = useSatelliteStore(s => s.getPositions)
+  const getSatellites = useSatelliteStore(s => s.getSatellites)
   const satVersion = useSatelliteStore(s => s.version)
   const vessels = useVesselStore(s => s.vessels)
   const vesselVersion = useVesselStore(s => s.version)
@@ -1058,6 +1102,72 @@ export function MapboxGlobeView() {
     const src = map.getSource('satellites') as mapboxgl.GeoJSONSource | undefined
     if (src) src.setData(buildSatelliteGeoJSON(toggles, getPositions, selectedSatId))
   }, [satVersion, toggles, getPositions, selectedSatId])
+
+  // Sync orbital track + footprint for selected satellite
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+
+    const trackSrc = map.getSource('orbital-track') as mapboxgl.GeoJSONSource | undefined
+    const footSrc = map.getSource('sat-footprint') as mapboxgl.GeoJSONSource | undefined
+    const empty: GeoJSONFeatureCollection = { type: 'FeatureCollection', features: [] }
+
+    if (selectedSatId === null) {
+      if (trackSrc) trackSrc.setData(empty)
+      if (footSrc) footSrc.setData(empty)
+      return
+    }
+
+    // Find the satrec and color for the selected satellite
+    let satrec: unknown = null
+    let color = '#ff8800'
+    for (const [cid] of toggles) {
+      const sats = getSatellites(cid)
+      const sat = sats.find(s => s.noradId === selectedSatId)
+      if (sat) {
+        satrec = sat.satrec
+        color = CONSTELLATION_COLORS.get(cid) ?? '#ff8800'
+        break
+      }
+    }
+
+    if (!satrec) {
+      if (trackSrc) trackSrc.setData(empty)
+      if (footSrc) footSrc.setData(empty)
+      return
+    }
+
+    // Compute ground track (next 90 min)
+    const track = computeGroundTrack(satrec as Parameters<typeof import('satellite.js').propagate>[0])
+    const segments = splitAtAntimeridian(track)
+
+    const trackFeatures: GeoJSON.Feature[] = segments
+      .filter(seg => seg.length >= 2)
+      .map(seg => ({
+        type: 'Feature' as const,
+        geometry: {
+          type: 'LineString' as const,
+          coordinates: seg.map(p => [p.lon, p.lat]),
+        },
+        properties: { color },
+      }))
+
+    if (trackSrc) trackSrc.setData({ type: 'FeatureCollection', features: trackFeatures })
+
+    // Compute footprint from current position
+    const currentPos = track[0]
+    if (currentPos && footSrc) {
+      const ring = computeFootprint(currentPos.lat, currentPos.lon, currentPos.alt)
+      footSrc.setData({
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature',
+          geometry: { type: 'Polygon', coordinates: [ring] },
+          properties: { color },
+        }],
+      })
+    }
+  }, [satVersion, selectedSatId, toggles, getSatellites])
 
   // Sync vessel data
   useEffect(() => {
