@@ -26,7 +26,7 @@ export interface OsintComment {
 
 export interface OsintPost {
   id: string
-  platform: 'reddit' | 'mastodon' | 'bluesky' | 'x'
+  platform: 'reddit' | 'mastodon' | 'bluesky'
   author: string
   text: string
   fullText: string
@@ -292,99 +292,6 @@ export function parseBlueskyPosts(json: unknown): OsintPost[] {
       commentCount: item.replyCount,
       repostCount: item.repostCount,
       tags: tags.length ? tags : undefined,
-    })
-  }
-
-  return posts
-}
-
-/**
- * Parse X (Twitter) API v2 timeline/search response.
- * Expects the server to pass { data: [...tweets], includes?: { users, media } }
- */
-export function parseXPosts(json: unknown): OsintPost[] {
-  const resp = json as {
-    data?: Array<{
-      id?: string
-      text?: string
-      created_at?: string
-      author_id?: string
-      public_metrics?: { like_count?: number; reply_count?: number; retweet_count?: number }
-      attachments?: { media_keys?: string[] }
-      entities?: { urls?: Array<{ expanded_url?: string; title?: string; description?: string; images?: Array<{ url?: string }> }> }
-    }>
-    includes?: {
-      users?: Array<{ id?: string; username?: string }>
-      media?: Array<{ media_key?: string; type?: string; url?: string; preview_image_url?: string }>
-    }
-  }
-
-  if (!Array.isArray(resp?.data)) return []
-
-  // Build lookup maps from includes
-  const userMap = new Map<string, string>()
-  for (const u of resp.includes?.users ?? []) {
-    if (u.id && u.username) userMap.set(u.id, u.username)
-  }
-  const mediaMap = new Map<string, { type: string; url: string; preview?: string }>()
-  for (const m of resp.includes?.media ?? []) {
-    if (m.media_key && m.url) {
-      mediaMap.set(m.media_key, { type: m.type ?? 'photo', url: m.url, preview: m.preview_image_url })
-    }
-  }
-
-  const posts: OsintPost[] = []
-  for (const tweet of resp.data) {
-    const text = tweet.text ?? ''
-    if (!text || text.length < 10) continue
-    const locations = extractLocations(text)
-    if (locations.length === 0) continue
-
-    const loc = locations[0]
-    const author = userMap.get(tweet.author_id ?? '') ?? 'unknown'
-
-    // Extract media
-    const media: OsintMedia[] = []
-    for (const key of tweet.attachments?.media_keys ?? []) {
-      const m = mediaMap.get(key)
-      if (m) {
-        media.push({
-          type: m.type === 'video' ? 'video' : 'image',
-          url: m.url,
-          previewUrl: m.preview,
-        })
-      }
-    }
-
-    // Extract link card from first URL entity
-    let linkCard: OsintLinkCard | undefined
-    const firstUrl = tweet.entities?.urls?.[0]
-    if (firstUrl?.expanded_url) {
-      linkCard = {
-        url: firstUrl.expanded_url,
-        title: firstUrl.title ?? '',
-        description: firstUrl.description ?? '',
-        image: firstUrl.images?.[0]?.url,
-      }
-    }
-
-    posts.push({
-      id: `x-${tweet.id}`,
-      platform: 'x',
-      author,
-      text: text.slice(0, 200),
-      fullText: text,
-      url: `https://x.com/${author}/status/${tweet.id}`,
-      lat: loc.lat,
-      lon: loc.lon,
-      locationName: loc.name,
-      time: tweet.created_at ? new Date(tweet.created_at).getTime() : Date.now(),
-      lastUpdate: Date.now(),
-      media,
-      linkCard,
-      score: tweet.public_metrics?.like_count,
-      commentCount: tweet.public_metrics?.reply_count,
-      repostCount: tweet.public_metrics?.retweet_count,
     })
   }
 

@@ -3,14 +3,14 @@ import type { OsintPost } from '@/lib/osint-client'
 
 const STORAGE_KEY = 'eagle-eye-osint-toggles'
 
-type Platform = 'reddit' | 'mastodon' | 'bluesky' | 'x'
+type Platform = 'reddit' | 'mastodon' | 'bluesky'
 
 function loadToggles(): Map<Platform, boolean> {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored) return new Map(JSON.parse(stored))
   } catch { /* ignore */ }
-  return new Map([['reddit', true], ['mastodon', true], ['bluesky', true], ['x', true]])
+  return new Map([['reddit', true], ['mastodon', true], ['bluesky', true]])
 }
 
 function saveToggles(toggles: Map<Platform, boolean>) {

@@ -473,38 +473,123 @@ async function handleWeatherConditions(url: URL): Promise<Response> {
   }
 }
 
-// ─── NEWS (GDELT) PROXY ────────────────────────────────────────────────────
+// ─── NEWS PROXY (GDELT + NewsData + Currents + RSS) ───────────────────────
 
-import { parseGdeltGeo } from '../src/lib/news-client'
+import { parseGdeltGeo, parseNewsdataArticles, parseCurrentsArticles, parseRssItems } from '../src/lib/news-client'
 
-interface NewsCacheEntry { events: unknown[]; errors: string[]; fetchedAt: number }
-let newsCache: NewsCacheEntry | null = null
-const NEWS_CACHE_TTL = 300_000 // 5 min
+interface NewsSourceCache { events: unknown[]; fetchedAt: number }
+let gdeltCache: NewsSourceCache | null = null
+let newsdataCache: NewsSourceCache | null = null
+let currentsCache: NewsSourceCache | null = null
+let rssCache: NewsSourceCache | null = null
+
+const GDELT_TTL      = 300_000    // 5 min
+const NEWSDATA_TTL   = 1_800_000  // 30 min
+const CURRENTS_TTL   = 900_000    // 15 min
+const RSS_TTL        = 600_000    // 10 min
+
+const NEWSDATA_KEY = process.env.NEWSDATA_API_KEY ?? ''
+const CURRENTS_KEY = process.env.CURRENTS_API_KEY ?? ''
+
+const RSS_FEEDS: Array<{ url: string; name: string }> = [
+  { url: 'https://feeds.bbci.co.uk/news/world/rss.xml', name: 'BBC' },
+  { url: 'https://www.aljazeera.com/xml/rss/all.xml', name: 'Al Jazeera' },
+  { url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml', name: 'NYT' },
+]
+
+async function fetchGdeltNews(): Promise<unknown[]> {
+  if (gdeltCache && Date.now() - gdeltCache.fetchedAt < GDELT_TTL) return gdeltCache.events
+  const res = await fetch(
+    'https://api.gdeltproject.org/api/v2/geo/geo?query=(conflict+OR+disaster+OR+crisis+OR+military+OR+earthquake)&format=geojson&timespan=24h',
+    { signal: AbortSignal.timeout(15_000) },
+  )
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const events = parseGdeltGeo(await res.json())
+  console.log(`[News] GDELT: ${events.length} geo events`)
+  gdeltCache = { events, fetchedAt: Date.now() }
+  return events
+}
+
+async function fetchNewsdataNews(): Promise<unknown[]> {
+  if (!NEWSDATA_KEY) return []
+  if (newsdataCache && Date.now() - newsdataCache.fetchedAt < NEWSDATA_TTL) return newsdataCache.events
+  const res = await fetch(
+    `https://newsdata.io/api/1/latest?apikey=${NEWSDATA_KEY}&q=conflict+OR+disaster+OR+military+OR+crisis&language=en&size=10`,
+    { signal: AbortSignal.timeout(15_000) },
+  )
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const events = parseNewsdataArticles(await res.json())
+  console.log(`[News] NewsData: ${events.length} articles`)
+  newsdataCache = { events, fetchedAt: Date.now() }
+  return events
+}
+
+async function fetchCurrentsNews(): Promise<unknown[]> {
+  if (!CURRENTS_KEY) return []
+  if (currentsCache && Date.now() - currentsCache.fetchedAt < CURRENTS_TTL) return currentsCache.events
+  const res = await fetch(
+    `https://api.currentsapi.services/v1/latest-news?apiKey=${CURRENTS_KEY}&language=en&category=world`,
+    { signal: AbortSignal.timeout(15_000) },
+  )
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const events = parseCurrentsArticles(await res.json())
+  console.log(`[News] Currents: ${events.length} articles`)
+  currentsCache = { events, fetchedAt: Date.now() }
+  return events
+}
+
+async function fetchRssNews(): Promise<unknown[]> {
+  if (rssCache && Date.now() - rssCache.fetchedAt < RSS_TTL) return rssCache.events
+  const allEvents: unknown[] = []
+  for (const feed of RSS_FEEDS) {
+    try {
+      const res = await fetch(feed.url, { signal: AbortSignal.timeout(10_000) })
+      if (!res.ok) { console.warn(`[News] RSS ${feed.name}: HTTP ${res.status}`); continue }
+      const xml = await res.text()
+      const events = parseRssItems(xml, feed.name)
+      allEvents.push(...events)
+    } catch (err) {
+      console.warn(`[News] RSS ${feed.name} failed: ${(err as Error).message}`)
+    }
+  }
+  console.log(`[News] RSS: ${allEvents.length} articles (${RSS_FEEDS.map(f => f.name).join(', ')})`)
+  rssCache = { events: allEvents, fetchedAt: Date.now() }
+  return allEvents
+}
+
+/** Normalize title for deduplication */
+function normTitle(t: string): string {
+  return t.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
+}
 
 async function fetchNewsEvents(): Promise<{ events: unknown[]; errors: string[] }> {
-  if (newsCache && Date.now() - newsCache.fetchedAt < NEWS_CACHE_TTL) {
-    return { events: newsCache.events, errors: newsCache.errors }
-  }
-
   const errors: string[] = []
-  let events: unknown[] = []
+  const results = await Promise.allSettled([
+    fetchGdeltNews(),
+    fetchNewsdataNews(),
+    fetchCurrentsNews(),
+    fetchRssNews(),
+  ])
+  const sourceNames = ['GDELT', 'NewsData', 'Currents', 'RSS']
+  const allEvents: unknown[] = []
+  const seenTitles = new Set<string>()
 
-  try {
-    const res = await fetch(
-      'https://api.gdeltproject.org/api/v2/geo/geo?query=(conflict+OR+disaster+OR+crisis+OR+military+OR+earthquake)&format=geojson&timespan=24h',
-      { signal: AbortSignal.timeout(15_000) },
-    )
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const json = await res.json()
-    events = parseGdeltGeo(json)
-    console.log(`[News] GDELT: ${events.length} geo events`)
-  } catch (err) {
-    errors.push(`GDELT: ${(err as Error).message}`)
-    console.warn(`[News] GDELT failed: ${(err as Error).message}`)
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i]
+    if (r.status === 'fulfilled') {
+      for (const ev of r.value) {
+        const title = normTitle((ev as { title?: string }).title ?? '')
+        if (title && seenTitles.has(title)) continue
+        if (title) seenTitles.add(title)
+        allEvents.push(ev)
+      }
+    } else {
+      errors.push(`${sourceNames[i]}: ${r.reason?.message ?? 'unknown error'}`)
+      console.warn(`[News] ${sourceNames[i]} failed: ${r.reason?.message}`)
+    }
   }
 
-  newsCache = { events, errors, fetchedAt: Date.now() }
-  return { events, errors }
+  return { events: allEvents, errors }
 }
 
 async function handleNewsEvents(): Promise<Response> {
@@ -515,7 +600,7 @@ async function handleNewsEvents(): Promise<Response> {
     })
   } catch (err) {
     console.error('[News] Fetch error:', err)
-    return Response.json({ events: [], errors: ['GDELT failed'] }, {
+    return Response.json({ events: [], errors: ['News fetch failed'] }, {
       headers: { 'Access-Control-Allow-Origin': '*' },
     })
   }
@@ -700,7 +785,7 @@ async function handleCyberEvents(): Promise<Response> {
 
 // ─── OSINT PROXY ─────────────────────────────────────────────────────────────
 
-import { parseRedditPosts, parseMastodonPosts, parseBlueskyPosts, parseXPosts } from '../src/lib/osint-client'
+import { parseRedditPosts, parseMastodonPosts, parseBlueskyPosts } from '../src/lib/osint-client'
 
 interface OsintCacheEntry { posts: unknown[]; errors: string[]; fetchedAt: number }
 let osintCache: OsintCacheEntry | null = null
@@ -723,9 +808,9 @@ async function fetchOsintPosts(): Promise<{ posts: unknown[]; errors: string[] }
     })
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then(json => parseMastodonPosts(json)),
-    // Fetch from multiple Bluesky news accounts and merge
+    // Fetch from Bluesky news + OSINT accounts and merge
     Promise.all(
-      ['apnews.com', 'reuters.com', 'bbc.com'].map(actor =>
+      ['apnews.com', 'reuters.com', 'bbc.com', 'sentdefender.bsky.social', 'osinttechnical.bsky.social', 'intelcrab.bsky.social', 'uaweapons.bsky.social', 'geoconfirmed.org', 'liveuamap.com'].map(actor =>
         fetch(`https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor=${actor}&limit=15`, {
           signal: AbortSignal.timeout(10_000),
         })
@@ -734,26 +819,11 @@ async function fetchOsintPosts(): Promise<{ posts: unknown[]; errors: string[] }
           .catch(() => [] as ReturnType<typeof parseBlueskyPosts>)
       )
     ).then(arrays => arrays.flat()),
-    // X (Twitter) — requires X_BEARER_TOKEN in .env
-    ...(process.env.X_BEARER_TOKEN ? [
-      Promise.all(
-        // OSINT accounts to monitor
-        (process.env.X_OSINT_USERS ?? 'ABORINTL,OSINTdefender,IntelCrab,GeoConfirmed,UAWeapons').split(',').map(username =>
-          fetch(`https://api.twitter.com/2/tweets/search/recent?query=from:${username}&max_results=20&tweet.fields=created_at,author_id,public_metrics,entities,attachments&expansions=author_id,attachments.media_keys&user.fields=username&media.fields=url,preview_image_url,type`, {
-            signal: AbortSignal.timeout(10_000),
-            headers: { 'Authorization': `Bearer ${process.env.X_BEARER_TOKEN}` },
-          })
-            .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
-            .then(json => parseXPosts(json))
-            .catch(() => [] as ReturnType<typeof parseXPosts>)
-        )
-      ).then(arrays => arrays.flat()),
-    ] : []),
   ])
 
   const posts: unknown[] = []
   const errors: string[] = []
-  const sourceNames = ['Reddit', 'Mastodon', 'Bluesky', ...(process.env.X_BEARER_TOKEN ? ['X'] : [])]
+  const sourceNames = ['Reddit', 'Mastodon', 'Bluesky']
   for (let i = 0; i < results.length; i++) {
     const result = results[i]
     if (result.status === 'fulfilled') posts.push(...result.value)
