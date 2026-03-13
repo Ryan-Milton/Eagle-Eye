@@ -1692,6 +1692,98 @@ async function handleHexdbImage(url: URL): Promise<Response> {
   }
 }
 
+// ─── FLEET TRACKER ─────────────────────────────────────────────────────────
+
+const REGION_CENTROIDS: Record<string, [number, number]> = {
+  'western pacific': [20, 140],
+  'pacific ocean': [10, -160],
+  'eastern pacific': [20, -120],
+  'south china sea': [14, 114],
+  'philippine sea': [18, 130],
+  'indian ocean': [-5, 75],
+  'arabian sea': [18, 65],
+  'persian gulf': [27, 51],
+  'red sea': [20, 38],
+  'mediterranean': [35, 18],
+  'atlantic ocean': [30, -45],
+  'north atlantic': [45, -30],
+  'caribbean': [17, -72],
+  'baltic sea': [57, 19],
+  'norwegian sea': [67, 4],
+  'homeport': [36.9, -76.3], // Norfolk, VA
+  'norfolk': [36.9, -76.3],
+  'san diego': [32.7, -117.2],
+  'bremerton': [47.6, -122.6],
+  'yokosuka': [35.3, 139.7],
+  'pearl harbor': [21.3, -157.9],
+}
+
+interface FleetCacheEntry { carriers: unknown[]; fetchedAt: number }
+let fleetCache: FleetCacheEntry | null = null
+const FLEET_TTL = 21_600_000 // 6 hours
+
+async function handleFleetTracker(): Promise<Response> {
+  const CORS = { 'Access-Control-Allow-Origin': '*' }
+  try {
+    if (fleetCache && Date.now() - fleetCache.fetchedAt < FLEET_TTL) {
+      return Response.json({ carriers: fleetCache.carriers }, { headers: CORS })
+    }
+
+    const carriers: Array<{ name: string; hull: string; region: string; lat: number; lon: number; lastUpdate: number }> = []
+
+    // Try to scrape USNI Fleet Tracker
+    try {
+      const res = await fetch('https://news.usni.org/category/fleet-tracker', {
+        signal: AbortSignal.timeout(15_000),
+        headers: { 'User-Agent': 'EagleEye/1.0 (intelligence-dashboard)' },
+      })
+      if (res.ok) {
+        const html = await res.text()
+        // Extract carrier mentions with region context
+        const carrierRegex = /USS\s+([A-Za-z\s]+)\s*\(CV[HN]*-?\d+\)/g
+        const regionRegex = /(?:deployed to|operating in|transited|in the)\s+(?:the\s+)?([A-Za-z\s]+?)(?:\.|,|;|\s+on|\s+for)/gi
+        let carrierMatch
+        const seenCarriers = new Set<string>()
+
+        while ((carrierMatch = carrierRegex.exec(html)) !== null) {
+          const carrierName = carrierMatch[0].trim()
+          if (seenCarriers.has(carrierName)) continue
+          seenCarriers.add(carrierName)
+
+          // Look for nearby region text
+          const context = html.slice(Math.max(0, carrierMatch.index - 300), carrierMatch.index + 300)
+          regionRegex.lastIndex = 0
+          const regionMatch = regionRegex.exec(context)
+          const regionText = (regionMatch?.[1] ?? 'homeport').trim().toLowerCase()
+
+          const coords = REGION_CENTROIDS[regionText] ?? REGION_CENTROIDS['homeport']
+          // Add slight randomization to prevent stacking
+          const lat = coords[0] + (Math.random() - 0.5) * 2
+          const lon = coords[1] + (Math.random() - 0.5) * 2
+
+          const hullMatch = carrierName.match(/\(([^)]+)\)/)
+          carriers.push({
+            name: carrierName.replace(/\s*\([^)]+\)/, '').trim(),
+            hull: hullMatch?.[1] ?? '',
+            region: regionMatch?.[1]?.trim() ?? 'Homeport',
+            lat, lon,
+            lastUpdate: Date.now(),
+          })
+        }
+        console.log(`[Fleet] Scraped ${carriers.length} carriers from USNI`)
+      }
+    } catch (err) {
+      console.warn(`[Fleet] USNI scrape failed: ${(err as Error).message}`)
+    }
+
+    fleetCache = { carriers, fetchedAt: Date.now() }
+    return Response.json({ carriers }, { headers: CORS })
+  } catch (err) {
+    console.warn(`[Fleet] Failed: ${(err as Error).message}`)
+    return Response.json({ carriers: [] }, { headers: CORS })
+  }
+}
+
 // ─── MARKETS (Defense Stocks & Commodities) ────────────────────────────────
 
 const MARKET_SYMBOLS = ['RTX', 'LMT', 'NOC', 'GD', 'BA', 'PLTR', 'CL=F', 'BZ=F']
@@ -1919,6 +2011,7 @@ Bun.serve<{ path: string }>({
     if (url.pathname === '/api/economic/indicators') return handleEconomicIndicators()
     if (url.pathname === '/api/hexdb/lookup') return handleHexdbLookup(url)
     if (url.pathname === '/api/hexdb/image') return handleHexdbImage(url)
+    if (url.pathname === '/api/fleet/carriers') return handleFleetTracker()
     if (url.pathname === '/api/markets/quotes') return handleMarketQuotes()
     if (url.pathname === '/api/space-weather') return handleSpaceWeather()
     if (url.pathname === '/api/infrastructure/datacenters') return handleInfraDatacenters()

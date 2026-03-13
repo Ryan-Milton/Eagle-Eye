@@ -822,6 +822,26 @@ function addEntityLayers(map: mapboxgl.Map) {
     },
   })
 
+  // --- Fleet carriers ---
+  map.addSource('fleet-carriers', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({
+    id: 'fleet-carriers-layer', type: 'circle', source: 'fleet-carriers',
+    paint: {
+      'circle-radius': 7, 'circle-color': '#1e3a5f',
+      'circle-opacity': 0.9, 'circle-stroke-width': 2.5, 'circle-stroke-color': '#3b82f6',
+    },
+  })
+  map.addLayer({
+    id: 'fleet-carriers-labels', type: 'symbol', source: 'fleet-carriers',
+    layout: {
+      'text-field': ['get', 'hull'],
+      'text-size': 9,
+      'text-offset': [0, 1.5],
+      'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+    },
+    paint: { 'text-color': '#93c5fd', 'text-halo-color': '#000', 'text-halo-width': 1 },
+  })
+
   // --- Weather radar raster overlay ---
   map.addSource('radar-tiles', {
     type: 'raster',
@@ -1450,6 +1470,25 @@ export function MapboxGlobeView() {
       }
     }
   }, [infraToggles])
+
+  // Load fleet carrier data
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+
+    fetch('/api/fleet/carriers')
+      .then(r => r.json())
+      .then((data: { carriers?: Array<{ name: string; hull: string; lat: number; lon: number; region: string }> }) => {
+        const features = (data.carriers ?? []).map(c => ({
+          type: 'Feature' as const,
+          geometry: { type: 'Point' as const, coordinates: [c.lon, c.lat] },
+          properties: { name: c.name, hull: c.hull, region: c.region },
+        }))
+        const src = map.getSource('fleet-carriers') as mapboxgl.GeoJSONSource | undefined
+        if (src) src.setData({ type: 'FeatureCollection', features })
+      })
+      .catch(err => console.warn('[Fleet] Failed to load carriers:', err))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync weather radar overlay
   useEffect(() => {
