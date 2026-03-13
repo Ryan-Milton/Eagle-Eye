@@ -13,6 +13,7 @@ import { useEconomicInit } from '@/hooks/useEconomicInit'
 import { useCameraInit } from '@/hooks/useCameraInit'
 import { useRadarInit } from '@/hooks/useRadarInit'
 import { useSpaceWeatherInit } from '@/hooks/useSpaceWeatherInit'
+import { useMarketInit } from '@/hooks/useMarketInit'
 import { useAlertEngine } from '@/hooks/useAlertEngine'
 import { useDarkVesselDetection } from '@/hooks/useDarkVesselDetection'
 import { usePersistence } from '@/hooks/usePersistence'
@@ -42,6 +43,7 @@ export default function App() {
   useCameraInit()
   useRadarInit()
   useSpaceWeatherInit()
+  useMarketInit()
   useAlertEngine()
   useDarkVesselDetection()
   usePersistence()

@@ -1692,6 +1692,49 @@ async function handleHexdbImage(url: URL): Promise<Response> {
   }
 }
 
+// ─── MARKETS (Defense Stocks & Commodities) ────────────────────────────────
+
+const MARKET_SYMBOLS = ['RTX', 'LMT', 'NOC', 'GD', 'BA', 'PLTR', 'CL=F', 'BZ=F']
+interface MarketCacheEntry { quotes: Array<{ symbol: string; data: unknown }>; fetchedAt: number }
+let marketCache: MarketCacheEntry | null = null
+const MARKET_TTL = 900_000 // 15 min
+
+async function handleMarketQuotes(): Promise<Response> {
+  const CORS = { 'Access-Control-Allow-Origin': '*' }
+  try {
+    if (marketCache && Date.now() - marketCache.fetchedAt < MARKET_TTL) {
+      return Response.json({ quotes: marketCache.quotes }, { headers: CORS })
+    }
+
+    const results = await Promise.allSettled(
+      MARKET_SYMBOLS.map(async (symbol) => {
+        const res = await fetch(
+          `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`,
+          {
+            signal: AbortSignal.timeout(10_000),
+            headers: { 'User-Agent': 'EagleEye/1.0' },
+          },
+        )
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.json()
+        return { symbol, data }
+      })
+    )
+
+    const quotes: Array<{ symbol: string; data: unknown }> = []
+    for (const result of results) {
+      if (result.status === 'fulfilled') quotes.push(result.value)
+    }
+
+    marketCache = { quotes, fetchedAt: Date.now() }
+    console.log(`[Markets] Fetched ${quotes.length}/${MARKET_SYMBOLS.length} symbols`)
+    return Response.json({ quotes }, { headers: CORS })
+  } catch (err) {
+    console.warn(`[Markets] Fetch failed: ${(err as Error).message}`)
+    return Response.json({ quotes: [] }, { headers: CORS })
+  }
+}
+
 // ─── SPACE WEATHER ──────────────────────────────────────────────────────────
 
 interface SpaceWeatherCacheEntry { kpIndex: unknown; alerts: unknown; fetchedAt: number }
@@ -1876,6 +1919,7 @@ Bun.serve<{ path: string }>({
     if (url.pathname === '/api/economic/indicators') return handleEconomicIndicators()
     if (url.pathname === '/api/hexdb/lookup') return handleHexdbLookup(url)
     if (url.pathname === '/api/hexdb/image') return handleHexdbImage(url)
+    if (url.pathname === '/api/markets/quotes') return handleMarketQuotes()
     if (url.pathname === '/api/space-weather') return handleSpaceWeather()
     if (url.pathname === '/api/infrastructure/datacenters') return handleInfraDatacenters()
     if (url.pathname === '/api/infrastructure/frontlines') return handleInfraFrontlines()
