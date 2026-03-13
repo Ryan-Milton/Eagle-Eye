@@ -1692,6 +1692,124 @@ async function handleHexdbImage(url: URL): Promise<Response> {
   }
 }
 
+// ─── INFRASTRUCTURE DATA ──────────────────────────────────────────────────
+
+interface InfraCacheEntry { data: unknown; fetchedAt: number }
+let datacenterCache: InfraCacheEntry | null = null
+let frontlinesCache: InfraCacheEntry | null = null
+let surveillanceCache: InfraCacheEntry | null = null
+
+const INFRA_TTL_24H = 86_400_000
+const INFRA_TTL_1H = 3_600_000
+
+async function handleInfraDatacenters(): Promise<Response> {
+  const CORS = { 'Access-Control-Allow-Origin': '*' }
+  try {
+    if (datacenterCache && Date.now() - datacenterCache.fetchedAt < INFRA_TTL_24H) {
+      return Response.json(datacenterCache.data, { headers: CORS })
+    }
+    // Fetch datacenter locations from public dataset
+    const res = await fetch('https://raw.githubusercontent.com/telegeography/www.datacentermap.com/master/src/data/facilities.json', {
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const facilities = await res.json() as Array<{ name?: string; city?: string; country?: string; latitude?: number; longitude?: number }>
+    const features = facilities
+      .filter((f: any) => f.latitude != null && f.longitude != null)
+      .map((f: any) => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [f.longitude, f.latitude] },
+        properties: { name: f.name ?? 'Datacenter', city: f.city ?? '', country: f.country ?? '' },
+      }))
+    const geojson = { type: 'FeatureCollection', features }
+    datacenterCache = { data: geojson, fetchedAt: Date.now() }
+    console.log(`[Infrastructure] Datacenters: ${features.length} facilities`)
+    return Response.json(geojson, { headers: CORS })
+  } catch (err) {
+    console.warn(`[Infrastructure] Datacenters failed: ${(err as Error).message}`)
+    return Response.json({ type: 'FeatureCollection', features: [] }, { headers: CORS })
+  }
+}
+
+async function handleInfraFrontlines(): Promise<Response> {
+  const CORS = { 'Access-Control-Allow-Origin': '*' }
+  try {
+    if (frontlinesCache && Date.now() - frontlinesCache.fetchedAt < INFRA_TTL_1H) {
+      return Response.json(frontlinesCache.data, { headers: CORS })
+    }
+    // Get directory listing from DeepStateMap GitHub repo
+    const dirRes = await fetch('https://api.github.com/repos/cyterat/deepstate-map-data/contents/geojson', {
+      signal: AbortSignal.timeout(15_000),
+      headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'EagleEye/1.0' },
+    })
+    if (!dirRes.ok) throw new Error(`GitHub API HTTP ${dirRes.status}`)
+    const files = await dirRes.json() as Array<{ name: string; download_url: string }>
+    // Find the latest GeoJSON file (sorted alphabetically, newest date last)
+    const geojsonFiles = files.filter(f => f.name.endsWith('.geojson')).sort((a, b) => b.name.localeCompare(a.name))
+    if (geojsonFiles.length === 0) throw new Error('No GeoJSON files found')
+
+    const latestUrl = geojsonFiles[0].download_url
+    const geoRes = await fetch(latestUrl, { signal: AbortSignal.timeout(30_000) })
+    if (!geoRes.ok) throw new Error(`GeoJSON fetch HTTP ${geoRes.status}`)
+    const geojson = await geoRes.json()
+    frontlinesCache = { data: geojson, fetchedAt: Date.now() }
+    console.log(`[Infrastructure] Frontlines: loaded ${geojsonFiles[0].name}`)
+    return Response.json(geojson, { headers: CORS })
+  } catch (err) {
+    console.warn(`[Infrastructure] Frontlines failed: ${(err as Error).message}`)
+    return Response.json({ type: 'FeatureCollection', features: [] }, { headers: CORS })
+  }
+}
+
+const SURVEILLANCE_CITIES = [
+  { name: 'London', bbox: '-0.5,51.3,0.3,51.7' },
+  { name: 'NYC', bbox: '-74.1,40.6,-73.8,40.9' },
+  { name: 'Tokyo', bbox: '139.5,35.5,139.9,35.8' },
+  { name: 'Paris', bbox: '2.2,48.8,2.5,48.9' },
+  { name: 'Berlin', bbox: '13.2,52.4,13.6,52.6' },
+  { name: 'Sydney', bbox: '151.0,-34.0,151.4,-33.7' },
+]
+
+async function handleInfraSurveillance(): Promise<Response> {
+  const CORS = { 'Access-Control-Allow-Origin': '*' }
+  try {
+    if (surveillanceCache && Date.now() - surveillanceCache.fetchedAt < INFRA_TTL_24H) {
+      return Response.json(surveillanceCache.data, { headers: CORS })
+    }
+
+    const features: Array<{ type: string; geometry: { type: string; coordinates: number[] }; properties: { city: string } }> = []
+    for (const city of SURVEILLANCE_CITIES) {
+      try {
+        const [west, south, east, north] = city.bbox.split(',')
+        const query = `[out:json][timeout:10];node["man_made"="surveillance"](${south},${west},${north},${east});out body 200;`
+        const res = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: `data=${encodeURIComponent(query)}`,
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          signal: AbortSignal.timeout(15_000),
+        })
+        if (!res.ok) continue
+        const json = await res.json() as { elements?: Array<{ lat: number; lon: number }> }
+        for (const el of json.elements ?? []) {
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [el.lon, el.lat] },
+            properties: { city: city.name },
+          })
+        }
+      } catch { /* skip city */ }
+    }
+
+    const geojson = { type: 'FeatureCollection', features }
+    surveillanceCache = { data: geojson, fetchedAt: Date.now() }
+    console.log(`[Infrastructure] Surveillance: ${features.length} cameras from ${SURVEILLANCE_CITIES.length} cities`)
+    return Response.json(geojson, { headers: CORS })
+  } catch (err) {
+    console.warn(`[Infrastructure] Surveillance failed: ${(err as Error).message}`)
+    return Response.json({ type: 'FeatureCollection', features: [] }, { headers: CORS })
+  }
+}
+
 // ─── UNIFIED SERVER ─────────────────────────────────────────────────────────
 
 Bun.serve<{ path: string }>({
@@ -1727,6 +1845,9 @@ Bun.serve<{ path: string }>({
     if (url.pathname === '/api/economic/indicators') return handleEconomicIndicators()
     if (url.pathname === '/api/hexdb/lookup') return handleHexdbLookup(url)
     if (url.pathname === '/api/hexdb/image') return handleHexdbImage(url)
+    if (url.pathname === '/api/infrastructure/datacenters') return handleInfraDatacenters()
+    if (url.pathname === '/api/infrastructure/frontlines') return handleInfraFrontlines()
+    if (url.pathname === '/api/infrastructure/surveillance') return handleInfraSurveillance()
 
     // Legacy compatibility routes (single-port clients)
     if (url.pathname === '/lookup') return handleHexdbLookup(url)

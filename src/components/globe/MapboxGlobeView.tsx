@@ -791,6 +791,37 @@ function addEntityLayers(map: mapboxgl.Map) {
     paint: { 'line-color': INFRASTRUCTURE_COLORS.chokepoints, 'line-width': 1.5, 'line-opacity': 0.5 },
   })
 
+  // Datacenters — circle markers
+  map.addSource('infra-datacenters', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({
+    id: 'infra-datacenters-layer', type: 'circle', source: 'infra-datacenters',
+    paint: {
+      'circle-radius': 3, 'circle-color': INFRASTRUCTURE_COLORS.datacenters,
+      'circle-opacity': 0.7, 'circle-stroke-width': 1, 'circle-stroke-color': INFRASTRUCTURE_COLORS.datacenters, 'circle-stroke-opacity': 0.3,
+    },
+  })
+
+  // Conflict frontlines — fill + outline
+  map.addSource('infra-frontlines', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({
+    id: 'infra-frontlines-fill', type: 'fill', source: 'infra-frontlines',
+    paint: { 'fill-color': INFRASTRUCTURE_COLORS.frontlines, 'fill-opacity': 0.15 },
+  })
+  map.addLayer({
+    id: 'infra-frontlines-outline', type: 'line', source: 'infra-frontlines',
+    paint: { 'line-color': INFRASTRUCTURE_COLORS.frontlines, 'line-width': 2, 'line-opacity': 0.7 },
+  })
+
+  // Surveillance cameras — small dots
+  map.addSource('infra-surveillance', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({
+    id: 'infra-surveillance-layer', type: 'circle', source: 'infra-surveillance',
+    paint: {
+      'circle-radius': 2, 'circle-color': INFRASTRUCTURE_COLORS.surveillance,
+      'circle-opacity': 0.5, 'circle-stroke-width': 0,
+    },
+  })
+
   // --- Economic indicators (disabled) ---
   // map.addSource('economic', {
   //   type: 'geojson',
@@ -1364,12 +1395,18 @@ export function MapboxGlobeView() {
       pipelines: 'infra-pipelines',
       nuclear: 'infra-nuclear',
       chokepoints: 'infra-chokepoints',
+      datacenters: 'infra-datacenters',
+      frontlines: 'infra-frontlines',
+      surveillance: 'infra-surveillance',
     }
     const fileMap: Record<InfrastructureLayerType, string> = {
       cables: '/data/undersea-cables.geojson',
       pipelines: '/data/pipelines.geojson',
       nuclear: '/data/nuclear-facilities.geojson',
       chokepoints: '/data/chokepoints.geojson',
+      datacenters: '/api/infrastructure/datacenters',
+      frontlines: '/api/infrastructure/frontlines',
+      surveillance: '/api/infrastructure/surveillance',
     }
 
     for (const [layer, enabled] of infraToggles) {
