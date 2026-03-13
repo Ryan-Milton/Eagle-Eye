@@ -1692,6 +1692,80 @@ async function handleHexdbImage(url: URL): Promise<Response> {
   }
 }
 
+// ─── SENTINEL-2 IMAGERY (STAC) ─────────────────────────────────────────────
+
+async function handleImagerySearch(url: URL): Promise<Response> {
+  const CORS = { 'Access-Control-Allow-Origin': '*' }
+  try {
+    const west = parseFloat(url.searchParams.get('west') ?? '0')
+    const south = parseFloat(url.searchParams.get('south') ?? '0')
+    const east = parseFloat(url.searchParams.get('east') ?? '0')
+    const north = parseFloat(url.searchParams.get('north') ?? '0')
+
+    if (west === 0 && east === 0) {
+      return Response.json({ features: [] }, { headers: CORS })
+    }
+
+    // Limit bbox size to prevent massive queries
+    if (Math.abs(east - west) > 10 || Math.abs(north - south) > 10) {
+      return Response.json({ features: [], error: 'Zoom in to search for imagery (max 10° bbox)' }, { headers: CORS })
+    }
+
+    const now = new Date()
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000)
+
+    const stacBody = {
+      collections: ['sentinel-2-l2a'],
+      bbox: [west, south, east, north],
+      datetime: `${thirtyDaysAgo.toISOString()}/${now.toISOString()}`,
+      limit: 10,
+      query: { 'eo:cloud_cover': { lt: 20 } },
+      sortby: [{ field: 'properties.datetime', direction: 'desc' }],
+    }
+
+    const res = await fetch('https://planetarycomputer.microsoft.com/api/stac/v1/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(stacBody),
+      signal: AbortSignal.timeout(15_000),
+    })
+
+    if (!res.ok) throw new Error(`STAC API HTTP ${res.status}`)
+    const data = await res.json()
+
+    // Sign asset URLs with SAS tokens from Planetary Computer
+    const features = (data.features ?? []) as Array<{
+      id: string
+      properties: Record<string, unknown>
+      assets: Record<string, { href: string; type?: string }>
+      bbox: number[]
+    }>
+
+    for (const feature of features) {
+      // Try to get a signed tile URL
+      try {
+        const rendered = feature.assets?.['rendered_preview']
+        if (rendered?.href) {
+          const tokenRes = await fetch(
+            `https://planetarycomputer.microsoft.com/api/sas/v1/sign?href=${encodeURIComponent(rendered.href)}`,
+            { signal: AbortSignal.timeout(5_000) }
+          )
+          if (tokenRes.ok) {
+            const signed = await tokenRes.json()
+            rendered.href = (signed as { href: string }).href
+          }
+        }
+      } catch { /* skip signing */ }
+    }
+
+    console.log(`[Imagery] STAC: ${features.length} Sentinel-2 scenes found`)
+    return Response.json(data, { headers: CORS })
+  } catch (err) {
+    console.warn(`[Imagery] STAC search failed: ${(err as Error).message}`)
+    return Response.json({ features: [] }, { headers: CORS })
+  }
+}
+
 // ─── RADIO (Broadcastify) ──────────────────────────────────────────────────
 
 interface RadioCacheEntry { feeds: unknown[]; fetchedAt: number }
@@ -2113,6 +2187,7 @@ Bun.serve<{ path: string }>({
     if (url.pathname === '/api/economic/indicators') return handleEconomicIndicators()
     if (url.pathname === '/api/hexdb/lookup') return handleHexdbLookup(url)
     if (url.pathname === '/api/hexdb/image') return handleHexdbImage(url)
+    if (url.pathname === '/api/imagery/search') return handleImagerySearch(url)
     if (url.pathname === '/api/radio/feeds') return handleRadioFeeds()
     if (url.pathname === '/api/fleet/carriers') return handleFleetTracker()
     if (url.pathname === '/api/markets/quotes') return handleMarketQuotes()

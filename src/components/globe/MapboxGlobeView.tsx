@@ -19,6 +19,7 @@ import { useRFStore } from '@/stores/rf-store'
 // import { useEconomicStore } from '@/stores/economic-store'
 import { useInfrastructureStore, INFRASTRUCTURE_COLORS, type InfrastructureLayerType } from '@/stores/infrastructure-store'
 import { useRadioStore } from '@/stores/radio-store'
+import { SentinelOverlay } from './SentinelOverlay'
 import { useSelectionStore } from '@/stores/selection-store'
 import { useAppStore } from '@/stores/app-store'
 import { WEATHER_TYPE_DOT_COLORS, NEWS_CATEGORY_DOT_COLORS, CONFLICT_TYPE_DOT_COLORS, CYBER_TYPE_DOT_COLORS, OSINT_PLATFORM_DOT_COLORS, RF_SOURCE_DOT_COLORS, PORT_SIZE_DOT_COLORS } from '@/lib/colors'
@@ -1641,6 +1642,20 @@ export function MapboxGlobeView() {
         className="w-full h-full"
         style={{ filter: filterStyle }}
       />
+
+      {/* Sentinel-2 imagery search overlay */}
+      {mapReady && (
+        <SentinelOverlay
+          mapRef={mapRef}
+          getBounds={() => {
+            const map = mapRef.current
+            if (!map) return null
+            const b = map.getBounds()
+            if (!b) return null
+            return { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() }
+          }}
+        />
+      )}
 
       {/* CRT scanline + phosphor overlay */}
       {vizMode === 'crt' && (
