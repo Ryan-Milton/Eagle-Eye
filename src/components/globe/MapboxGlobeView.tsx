@@ -354,7 +354,7 @@ function buildPortGeoJSON(
   return { type: 'FeatureCollection', features }
 }
 
-type RFSource = 'psk' | 'rbn' | 'satnogs'
+type RFSource = 'psk' | 'rbn' | 'satnogs' | 'kiwisdr'
 
 function buildRFGeoJSON(
   spots: Map<string, RFSpot>,

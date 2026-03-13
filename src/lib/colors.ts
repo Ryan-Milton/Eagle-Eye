@@ -125,10 +125,11 @@ export const RF_SOURCE_COLORS: Record<string, string> = {
   psk: 'text-violet-400 border-violet-800/60 bg-violet-950/40',
   rbn: 'text-purple-400 border-purple-800/60 bg-purple-950/40',
   satnogs: 'text-fuchsia-400 border-fuchsia-800/60 bg-fuchsia-950/40',
+  kiwisdr: 'text-lime-400 border-lime-800/60 bg-lime-950/40',
 }
 
 export const RF_SOURCE_DOT_COLORS: Record<string, string> = {
-  psk: '#a78bfa', rbn: '#c084fc', satnogs: '#e879f9',
+  psk: '#a78bfa', rbn: '#c084fc', satnogs: '#e879f9', kiwisdr: '#a3e635',
 }
 
 // ─── Source Attribution ──────────────────────────────────────────────────
@@ -159,6 +160,14 @@ export const SOURCE_COLORS: Record<string, string> = {
   bbc: 'text-red-400 border-red-800/60 bg-red-950/40',
   'al jazeera': 'text-amber-400 border-amber-800/60 bg-amber-950/40',
   nyt: 'text-slate-400 border-slate-700/60 bg-slate-800/40',
+  npr: 'text-blue-400 border-blue-800/60 bg-blue-950/40',
+  nhk: 'text-rose-400 border-rose-800/60 bg-rose-950/40',
+  cna: 'text-red-400 border-red-800/60 bg-red-950/40',
+  mercopress: 'text-emerald-400 border-emerald-800/60 bg-emerald-950/40',
+  firms: 'text-orange-400 border-orange-800/60 bg-orange-950/40',
+  gdacs: 'text-red-400 border-red-800/60 bg-red-950/40',
+  kiwisdr: 'text-lime-400 border-lime-800/60 bg-lime-950/40',
+  tfl: 'text-blue-400 border-blue-800/60 bg-blue-950/40',
 }
 
 export const SOURCE_LABELS: Record<string, string> = {
@@ -185,6 +194,14 @@ export const SOURCE_LABELS: Record<string, string> = {
   bbc: 'BBC',
   'al jazeera': 'Al Jazeera',
   nyt: 'NYT',
+  npr: 'NPR',
+  nhk: 'NHK',
+  cna: 'CNA',
+  mercopress: 'Mercopress',
+  firms: 'NASA FIRMS',
+  gdacs: 'GDACS',
+  kiwisdr: 'KiwiSDR',
+  tfl: 'TfL',
 }
 
 // ─── Economic ────────────────────────────────────────────────────────────

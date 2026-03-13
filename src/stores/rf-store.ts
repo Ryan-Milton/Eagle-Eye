@@ -3,14 +3,14 @@ import type { RFSpot } from '@/types'
 
 const STORAGE_KEY = 'eagle-eye-rf-toggles'
 
-type RFSource = 'psk' | 'rbn' | 'satnogs'
+type RFSource = 'psk' | 'rbn' | 'satnogs' | 'kiwisdr'
 
 function loadToggles(): Map<RFSource, boolean> {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored) return new Map(JSON.parse(stored))
   } catch { /* ignore */ }
-  return new Map([['psk', true], ['rbn', true], ['satnogs', true]])
+  return new Map([['psk', true], ['rbn', true], ['satnogs', true], ['kiwisdr', true]])
 }
 
 function saveToggles(toggles: Map<RFSource, boolean>) {

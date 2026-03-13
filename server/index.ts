@@ -349,7 +349,7 @@ poll()
 
 // ─── WEATHER PROXY ──────────────────────────────────────────────────────────
 
-import { parseUSGSEarthquakes, parseEONETEvents, parseNWSAlerts } from '../src/lib/weather-client'
+import { parseUSGSEarthquakes, parseEONETEvents, parseNWSAlerts, parseFIRMSHotspots, parseGDACSAlerts } from '../src/lib/weather-client'
 
 interface WeatherCacheEntry {
   events: unknown[]
@@ -393,7 +393,7 @@ async function fetchEONETWithFallback(
   throw new Error(`All endpoints failed (${attemptErrors.join('; ')})`)
 }
 
-const SOURCE_NAMES = ['USGS Earthquakes', 'NASA EONET', 'NWS Alerts'] as const
+const SOURCE_NAMES = ['USGS Earthquakes', 'NASA EONET', 'NWS Alerts', 'NASA FIRMS', 'GDACS'] as const
 
 async function fetchWeatherEvents(): Promise<{ events: unknown[]; errors: string[] }> {
   if (weatherCache && Date.now() - weatherCache.fetchedAt < WEATHER_CACHE_TTL) {
@@ -420,6 +420,20 @@ async function fetchWeatherEvents(): Promise<{ events: unknown[]; errors: string
         return r.json()
       })
       .then(json => parseNWSAlerts(json)),
+    // NASA FIRMS — fire/thermal anomaly hotspots
+    withTimeout('https://firms.modaps.eosdis.nasa.gov/api/area/csv/MODIS_NRT/world/1')
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.text()
+      })
+      .then(csv => parseFIRMSHotspots(csv)),
+    // GDACS — global disaster alerts
+    withTimeout('https://www.gdacs.org/xml/rss.xml')
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.text()
+      })
+      .then(xml => parseGDACSAlerts(xml)),
   ])
 
   const events: unknown[] = []
@@ -495,6 +509,10 @@ const RSS_FEEDS: Array<{ url: string; name: string }> = [
   { url: 'https://feeds.bbci.co.uk/news/world/rss.xml', name: 'BBC' },
   { url: 'https://www.aljazeera.com/xml/rss/all.xml', name: 'Al Jazeera' },
   { url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml', name: 'NYT' },
+  { url: 'https://feeds.npr.org/1004/rss.xml', name: 'NPR' },
+  { url: 'https://www3.nhk.or.jp/rss/news/cat0.xml', name: 'NHK' },
+  { url: 'https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml', name: 'CNA' },
+  { url: 'https://en.mercopress.com/rss', name: 'Mercopress' },
 ]
 
 async function fetchGdeltNews(): Promise<unknown[]> {
@@ -1140,7 +1158,7 @@ async function handleSanctionsCheck(url: URL): Promise<Response> {
 
 // ─── CAMERA PROXY ───────────────────────────────────────────────────────────
 
-import { parseWindyCameras, parseCameraList } from '../src/lib/camera-client'
+import { parseWindyCameras, parseCameraList, parseTfLCameras } from '../src/lib/camera-client'
 
 const WINDY_KEY = process.env.WINDY_WEBCAMS_KEY ?? ''
 
@@ -1246,6 +1264,29 @@ async function fetchCameras(): Promise<{ cameras: unknown[]; errors: string[] }>
     console.log(`[Cameras] Windy: ${cameras.length} cameras from ${CAMERA_REGIONS.length} regions`)
   } else {
     errors.push('Windy: No API key configured (WINDY_WEBCAMS_KEY)')
+  }
+
+  // TfL JamCams (London) — free, no key required
+  try {
+    const tflRes = await fetch('https://api.tfl.gov.uk/Place/Type/JamCam', {
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (tflRes.ok) {
+      const tflJson = await tflRes.json()
+      const tflCams = parseTfLCameras(tflJson)
+      for (const cam of tflCams) {
+        if (!seenIds.has(cam.id)) {
+          seenIds.add(cam.id)
+          cameras.push(cam)
+        }
+      }
+      console.log(`[Cameras] TfL: ${tflCams.length} London JamCams`)
+    } else {
+      errors.push(`TfL: HTTP ${tflRes.status}`)
+    }
+  } catch (err) {
+    errors.push(`TfL: ${(err as Error).message}`)
+    console.warn(`[Cameras] TfL failed: ${(err as Error).message}`)
   }
 
   cameraCache = { cameras, errors, fetchedAt: Date.now() }
@@ -1430,7 +1471,7 @@ async function handlePorts(): Promise<Response> {
 
 // ─── RF SPECTRUM PROXY ──────────────────────────────────────────────────────
 
-import { parsePSKReporterSpots, parseRBNSpots, parseSatNOGSObservations } from '../src/lib/rf-client'
+import { parsePSKReporterSpots, parseRBNSpots, parseSatNOGSObservations, parseKiwiSDRReceivers } from '../src/lib/rf-client'
 
 interface RFCacheEntry { spots: unknown[]; errors: string[]; fetchedAt: number }
 let rfCache: RFCacheEntry | null = null
@@ -1482,11 +1523,18 @@ async function fetchRFSpots(): Promise<{ spots: unknown[]; errors: string[] }> {
     })
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then(json => parseSatNOGSObservations(json)),
+    // KiwiSDR — global SDR receiver network
+    fetch('http://kiwisdr.com/public/', {
+      signal: AbortSignal.timeout(15_000),
+      headers: { Accept: 'application/json' },
+    })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+      .then(json => parseKiwiSDRReceivers(json)),
   ])
 
   const spots: unknown[] = []
   const errors: string[] = []
-  const sourceNames = ['PSK Reporter', 'SatNOGS']
+  const sourceNames = ['PSK Reporter', 'SatNOGS', 'KiwiSDR']
   for (let i = 0; i < results.length; i++) {
     const result = results[i]
     if (result.status === 'fulfilled') spots.push(...result.value)

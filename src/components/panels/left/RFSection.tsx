@@ -5,11 +5,11 @@ import { getFrequencyBand } from '@/lib/rf-client'
 import { MasterToggle, TypeToggle } from './shared'
 import type { RFSpot } from '@/types'
 
-type RFSource = 'psk' | 'rbn' | 'satnogs'
+type RFSource = 'psk' | 'rbn' | 'satnogs' | 'kiwisdr'
 
-const SOURCE_LABELS: Record<RFSource, string> = { psk: 'PSK Reporter', rbn: 'Rev. Beacon', satnogs: 'SatNOGS' }
-const SOURCE_DOT_COLORS: Record<RFSource, string> = { psk: '#a78bfa', rbn: '#c084fc', satnogs: '#e879f9' }
-const SOURCES: RFSource[] = ['psk', 'rbn', 'satnogs']
+const SOURCE_LABELS: Record<RFSource, string> = { psk: 'PSK Reporter', rbn: 'Rev. Beacon', satnogs: 'SatNOGS', kiwisdr: 'KiwiSDR' }
+const SOURCE_DOT_COLORS: Record<RFSource, string> = { psk: '#a78bfa', rbn: '#c084fc', satnogs: '#e879f9', kiwisdr: '#a3e635' }
+const SOURCES: RFSource[] = ['psk', 'rbn', 'satnogs', 'kiwisdr']
 
 function formatFreq(hz: number): string {
   if (hz >= 1_000_000_000) return `${(hz / 1_000_000_000).toFixed(1)} GHz`
