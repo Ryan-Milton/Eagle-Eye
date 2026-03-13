@@ -1692,6 +1692,108 @@ async function handleHexdbImage(url: URL): Promise<Response> {
   }
 }
 
+// ─── RADIO (Broadcastify) ──────────────────────────────────────────────────
+
+interface RadioCacheEntry { feeds: unknown[]; fetchedAt: number }
+let radioCache: RadioCacheEntry | null = null
+const RADIO_TTL = 600_000 // 10 min
+
+// Known US state/city centroids for approximate radio feed geocoding
+const US_STATE_COORDS: Record<string, [number, number]> = {
+  'alabama': [32.8, -86.8], 'alaska': [64.2, -152.5], 'arizona': [34.0, -111.1],
+  'arkansas': [35.2, -91.8], 'california': [36.8, -119.4], 'colorado': [39.0, -105.5],
+  'connecticut': [41.6, -72.7], 'delaware': [39.3, -75.5], 'florida': [27.8, -81.7],
+  'georgia': [33.0, -83.6], 'hawaii': [19.9, -155.6], 'idaho': [44.2, -114.4],
+  'illinois': [40.6, -89.3], 'indiana': [40.3, -86.1], 'iowa': [42.0, -93.2],
+  'kansas': [39.0, -98.5], 'kentucky': [37.8, -85.8], 'louisiana': [31.2, -92.3],
+  'maine': [45.3, -69.4], 'maryland': [39.0, -76.6], 'massachusetts': [42.4, -71.4],
+  'michigan': [44.3, -85.6], 'minnesota': [46.7, -94.7], 'mississippi': [32.7, -89.7],
+  'missouri': [38.5, -92.3], 'montana': [46.8, -110.4], 'nebraska': [41.1, -98.3],
+  'nevada': [38.8, -116.4], 'new hampshire': [43.2, -71.6], 'new jersey': [40.1, -74.4],
+  'new mexico': [34.5, -106.0], 'new york': [43.0, -75.0], 'north carolina': [35.8, -79.8],
+  'north dakota': [47.5, -100.4], 'ohio': [40.4, -82.9], 'oklahoma': [35.0, -97.1],
+  'oregon': [43.8, -120.6], 'pennsylvania': [41.2, -77.2], 'rhode island': [41.6, -71.5],
+  'south carolina': [33.8, -80.9], 'south dakota': [43.9, -99.9], 'tennessee': [35.5, -86.6],
+  'texas': [31.0, -97.6], 'utah': [39.3, -111.1], 'vermont': [44.0, -72.7],
+  'virginia': [37.4, -78.7], 'washington': [47.8, -120.7], 'west virginia': [38.6, -80.4],
+  'wisconsin': [43.8, -89.5], 'wyoming': [43.1, -107.6], 'dc': [38.9, -77.0],
+  'los angeles': [34.1, -118.2], 'new york city': [40.7, -74.0], 'chicago': [41.9, -87.6],
+  'houston': [29.8, -95.4], 'phoenix': [33.4, -112.1], 'philadelphia': [40.0, -75.2],
+  'san antonio': [29.4, -98.5], 'san diego': [32.7, -117.2], 'dallas': [32.8, -96.8],
+}
+
+async function handleRadioFeeds(): Promise<Response> {
+  const CORS = { 'Access-Control-Allow-Origin': '*' }
+  try {
+    if (radioCache && Date.now() - radioCache.fetchedAt < RADIO_TTL) {
+      return Response.json({ feeds: radioCache.feeds }, { headers: CORS })
+    }
+
+    const feeds: Array<{ id: string; name: string; location: string; listeners: number; streamUrl: string | null; lat: number; lon: number }> = []
+
+    try {
+      const res = await fetch('https://www.broadcastify.com/listen/top', {
+        signal: AbortSignal.timeout(15_000),
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; EagleEye/1.0)',
+          Accept: 'text/html',
+        },
+      })
+      if (res.ok) {
+        const html = await res.text()
+        // Parse feed entries from HTML table rows
+        const rowRegex = /<tr[^>]*>[\s\S]*?<a\s+href="\/listen\/feed\/(\d+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/tr>/g
+        const listenerRegex = /(\d+)\s*listeners?/i
+        let match
+        while ((match = rowRegex.exec(html)) !== null) {
+          const feedId = match[1]
+          const feedContent = match[2].replace(/<[^>]+>/g, '').trim()
+          const fullRow = match[0]
+
+          // Extract listener count
+          const listenerMatch = listenerRegex.exec(fullRow)
+          const listeners = listenerMatch ? parseInt(listenerMatch[1]) : 0
+
+          // Extract location from the row text
+          const cells = fullRow.replace(/<[^>]+>/g, '\t').split('\t').map(s => s.trim()).filter(Boolean)
+          const location = cells[1] ?? '' // Usually second cell is location
+
+          // Geocode from location text
+          let lat = 0, lon = 0
+          const locationLower = (feedContent + ' ' + location).toLowerCase()
+          for (const [place, coords] of Object.entries(US_STATE_COORDS)) {
+            if (locationLower.includes(place)) {
+              lat = coords[0] + (Math.random() - 0.5) * 0.5
+              lon = coords[1] + (Math.random() - 0.5) * 0.5
+              break
+            }
+          }
+
+          if (lat !== 0 && lon !== 0) {
+            feeds.push({
+              id: `radio-${feedId}`,
+              name: feedContent.slice(0, 100),
+              location,
+              listeners,
+              streamUrl: `https://broadcastify.cdnstream1.com/${feedId}`,
+              lat, lon,
+            })
+          }
+        }
+        console.log(`[Radio] Broadcastify: ${feeds.length} feeds parsed`)
+      }
+    } catch (err) {
+      console.warn(`[Radio] Broadcastify scrape failed: ${(err as Error).message}`)
+    }
+
+    radioCache = { feeds, fetchedAt: Date.now() }
+    return Response.json({ feeds }, { headers: CORS })
+  } catch (err) {
+    console.warn(`[Radio] Failed: ${(err as Error).message}`)
+    return Response.json({ feeds: [] }, { headers: CORS })
+  }
+}
+
 // ─── FLEET TRACKER ─────────────────────────────────────────────────────────
 
 const REGION_CENTROIDS: Record<string, [number, number]> = {
@@ -2011,6 +2113,7 @@ Bun.serve<{ path: string }>({
     if (url.pathname === '/api/economic/indicators') return handleEconomicIndicators()
     if (url.pathname === '/api/hexdb/lookup') return handleHexdbLookup(url)
     if (url.pathname === '/api/hexdb/image') return handleHexdbImage(url)
+    if (url.pathname === '/api/radio/feeds') return handleRadioFeeds()
     if (url.pathname === '/api/fleet/carriers') return handleFleetTracker()
     if (url.pathname === '/api/markets/quotes') return handleMarketQuotes()
     if (url.pathname === '/api/space-weather') return handleSpaceWeather()

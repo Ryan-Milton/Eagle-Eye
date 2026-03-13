@@ -18,6 +18,7 @@ import { useCameraStore } from '@/stores/camera-store'
 import { useRFStore } from '@/stores/rf-store'
 // import { useEconomicStore } from '@/stores/economic-store'
 import { useInfrastructureStore, INFRASTRUCTURE_COLORS, type InfrastructureLayerType } from '@/stores/infrastructure-store'
+import { useRadioStore } from '@/stores/radio-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { useAppStore } from '@/stores/app-store'
 import { WEATHER_TYPE_DOT_COLORS, NEWS_CATEGORY_DOT_COLORS, CONFLICT_TYPE_DOT_COLORS, CYBER_TYPE_DOT_COLORS, OSINT_PLATFORM_DOT_COLORS, RF_SOURCE_DOT_COLORS, PORT_SIZE_DOT_COLORS } from '@/lib/colors'
@@ -822,6 +823,16 @@ function addEntityLayers(map: mapboxgl.Map) {
     },
   })
 
+  // --- Radio feeds ---
+  map.addSource('radio-feeds', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({
+    id: 'radio-feeds-layer', type: 'circle', source: 'radio-feeds',
+    paint: {
+      'circle-radius': 3.5, 'circle-color': '#f87171',
+      'circle-opacity': 0.7, 'circle-stroke-width': 1, 'circle-stroke-color': '#f87171', 'circle-stroke-opacity': 0.3,
+    },
+  })
+
   // --- Fleet carriers ---
   map.addSource('fleet-carriers', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
   map.addLayer({
@@ -931,6 +942,8 @@ export function MapboxGlobeView() {
   // const econIndicators = useEconomicStore(s => s.indicators)
   // const econVersion = useEconomicStore(s => s.version)
   // const selectedIndicator = useEconomicStore(s => s.selectedIndicator)
+  const radioFeeds = useRadioStore(s => s.feeds)
+  const radioVersion = useRadioStore(s => s.version)
   const cameraData = useCameraStore(s => s.cameras)
   const cameraVersion = useCameraStore(s => s.version)
   const cameraVisible = useCameraStore(s => s.visible)
@@ -1599,6 +1612,21 @@ export function MapboxGlobeView() {
     return () => { map.off('style.load', syncAll) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toggles, getPositions, selectedSatId, satVersion, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory, weatherEvents, selectedEventId, weatherVersion, weatherTypeToggles, newsEvents, selectedNewsId, newsVersion, newsCategoryToggles, conflictEvents, selectedConflictId, conflictVersion, conflictTypeToggles, cyberEvents, selectedCyberId, cyberVersion, cyberTypeToggles, osintPosts, osintVersion, osintPlatformToggles, portData, portVersion, portVisible, rfSpots, rfVersion, rfSourceToggles, cameraData, cameraVersion, cameraVisible, cursorForFilter])
+
+  // Sync radio feeds
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+    void radioVersion
+
+    const features = [...radioFeeds.values()].map(f => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [f.lon, f.lat] },
+      properties: { name: f.name, listeners: f.listeners },
+    }))
+    const src = map.getSource('radio-feeds') as mapboxgl.GeoJSONSource | undefined
+    if (src) src.setData({ type: 'FeatureCollection', features })
+  }, [radioFeeds, radioVersion])
 
   const filterStyle = vizMode === 'thermal'
     ? `grayscale(1) brightness(${vizBrightness}) contrast(${vizContrast})`

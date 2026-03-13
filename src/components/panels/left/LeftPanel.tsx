@@ -14,9 +14,10 @@ import { RFSection } from './RFSection'
 import { CameraSection } from './CameraSection'
 import { InfrastructureSection } from './InfrastructureSection'
 import { MarketSection } from './MarketSection'
+import { RadioSection } from './RadioSection'
 import { SearchResults } from './SearchResults'
 
-type SectionId = 'satellites' | 'maritime' | 'aircraft' | 'weather' | 'news' | 'conflicts' | 'cyber' | 'osint' | 'ports' | 'rf' | 'economic' | 'cameras' | 'infrastructure' | 'markets'
+type SectionId = 'satellites' | 'maritime' | 'aircraft' | 'weather' | 'news' | 'conflicts' | 'cyber' | 'osint' | 'ports' | 'rf' | 'economic' | 'cameras' | 'infrastructure' | 'markets' | 'radio'
 
 const STORAGE_KEY = 'eagle-eye-expanded-sections'
 
@@ -70,6 +71,7 @@ export function LeftPanel() {
             {/* <OsintSection /> */}
             <PortSection expanded={expandedSections.has('ports')} onToggle={() => toggleSection('ports')} />
             <RFSection expanded={expandedSections.has('rf')} onToggle={() => toggleSection('rf')} />
+            <RadioSection expanded={expandedSections.has('radio')} onToggle={() => toggleSection('radio')} />
             {/* <EconomicSection expanded={expandedSections.has('economic')} onToggle={() => toggleSection('economic')} /> */}
             <CameraSection expanded={expandedSections.has('cameras')} onToggle={() => toggleSection('cameras')} />
             <MarketSection expanded={expandedSections.has('markets')} onToggle={() => toggleSection('markets')} />
