@@ -32,6 +32,12 @@ interface WeatherState {
   errors: string[]
   typeToggles: Map<WeatherEventType, boolean>
 
+  // Radar overlay
+  radarEnabled: boolean
+  radarTilePath: string | null
+  toggleRadar: () => void
+  setRadarTilePath: (path: string | null) => void
+
   toggleType: (type: WeatherEventType) => void
   enableAllTypes: () => void
   disableAllTypes: () => void
@@ -44,6 +50,11 @@ export const useWeatherStore = create<WeatherState>()((set, get) => ({
   lastFetch: null,
   errors: [],
   typeToggles: loadToggles(),
+
+  radarEnabled: false,
+  radarTilePath: null,
+  toggleRadar: () => set(s => ({ radarEnabled: !s.radarEnabled })),
+  setRadarTilePath: (path) => set({ radarTilePath: path }),
 
   toggleType: (type) => {
     const next = new Map(get().typeToggles)

@@ -22,7 +22,7 @@ function timeAgo(ms: number): string {
 }
 
 export function WeatherSection({ expanded, onToggle }: { expanded: boolean; onToggle: () => void }) {
-  const { events, version, count, errors, typeToggles, toggleType, enableAllTypes, disableAllTypes } = useWeatherStore()
+  const { events, version, count, errors, typeToggles, toggleType, enableAllTypes, disableAllTypes, radarEnabled, toggleRadar } = useWeatherStore()
   const { selectedEventId, selectEvent } = useSelectionStore()
 
   const [expandedTypes, setExpandedTypes] = useState<Set<WeatherEventType>>(new Set())
@@ -71,6 +71,20 @@ export function WeatherSection({ expanded, onToggle }: { expanded: boolean; onTo
 
       {expanded && (
         <div className="border-b border-zinc-800">
+          {/* Radar overlay toggle */}
+          <div className="flex items-center gap-2 pl-4 pr-3 py-1.5 border-b border-zinc-800/40">
+            <span className="text-[12px]" style={{ color: '#38bdf8' }}>◎</span>
+            <span className="font-mono text-[11px] text-zinc-400 flex-1">Radar Overlay</span>
+            <button
+              onClick={toggleRadar}
+              className={cn('w-4 h-4 rounded border flex items-center justify-center text-[10px]',
+                radarEnabled ? 'border-sky-500 bg-sky-500/20 text-sky-400' : 'border-zinc-600 text-zinc-600'
+              )}
+            >
+              {radarEnabled ? '✓' : ''}
+            </button>
+          </div>
+
           {WEATHER_EVENT_TYPES.map(type => {
             const typeEvents = eventsByType.get(type) ?? []
             const isOn = typeToggles.get(type) ?? true

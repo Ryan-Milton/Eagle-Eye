@@ -822,6 +822,20 @@ function addEntityLayers(map: mapboxgl.Map) {
     },
   })
 
+  // --- Weather radar raster overlay ---
+  map.addSource('radar-tiles', {
+    type: 'raster',
+    tiles: ['https://tilecache.rainviewer.com/v2/radar/nowcast/256/{z}/{x}/{y}/2/1_1.png'],
+    tileSize: 256,
+  })
+  map.addLayer({
+    id: 'radar-layer',
+    type: 'raster',
+    source: 'radar-tiles',
+    paint: { 'raster-opacity': 0.5 },
+    layout: { visibility: 'none' },
+  })
+
   // --- Economic indicators (disabled) ---
   // map.addSource('economic', {
   //   type: 'geojson',
@@ -874,6 +888,8 @@ export function MapboxGlobeView() {
   const weatherEvents = useWeatherStore(s => s.events)
   const weatherVersion = useWeatherStore(s => s.version)
   const weatherTypeToggles = useWeatherStore(s => s.typeToggles)
+  const radarEnabled = useWeatherStore(s => s.radarEnabled)
+  const radarTilePath = useWeatherStore(s => s.radarTilePath)
   const newsEvents = useNewsStore(s => s.events)
   const newsVersion = useNewsStore(s => s.version)
   const newsCategoryToggles = useNewsStore(s => s.categoryToggles)
@@ -1434,6 +1450,21 @@ export function MapboxGlobeView() {
       }
     }
   }, [infraToggles])
+
+  // Sync weather radar overlay
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+
+    map.setLayoutProperty('radar-layer', 'visibility', radarEnabled ? 'visible' : 'none')
+
+    if (radarEnabled && radarTilePath) {
+      const src = map.getSource('radar-tiles') as mapboxgl.RasterTileSource | undefined
+      if (src && typeof (src as any).setTiles === 'function') {
+        (src as any).setTiles([`https://tilecache.rainviewer.com${radarTilePath}/256/{z}/{x}/{y}/2/1_1.png`])
+      }
+    }
+  }, [radarEnabled, radarTilePath])
 
   // Camera feed popup
   useEffect(() => {
