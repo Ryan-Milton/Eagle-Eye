@@ -1692,6 +1692,37 @@ async function handleHexdbImage(url: URL): Promise<Response> {
   }
 }
 
+// ─── SPACE WEATHER ──────────────────────────────────────────────────────────
+
+interface SpaceWeatherCacheEntry { kpIndex: unknown; alerts: unknown; fetchedAt: number }
+let spaceWeatherCache: SpaceWeatherCacheEntry | null = null
+const SPACE_WEATHER_TTL = 900_000 // 15 min
+
+async function handleSpaceWeather(): Promise<Response> {
+  const CORS = { 'Access-Control-Allow-Origin': '*' }
+  try {
+    if (spaceWeatherCache && Date.now() - spaceWeatherCache.fetchedAt < SPACE_WEATHER_TTL) {
+      return Response.json({ kpIndex: spaceWeatherCache.kpIndex, alerts: spaceWeatherCache.alerts }, { headers: CORS })
+    }
+
+    const [kpRes, alertsRes] = await Promise.allSettled([
+      fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json', { signal: AbortSignal.timeout(10_000) })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() }),
+      fetch('https://services.swpc.noaa.gov/products/alerts.json', { signal: AbortSignal.timeout(10_000) })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() }),
+    ])
+
+    const kpIndex = kpRes.status === 'fulfilled' ? kpRes.value : []
+    const alerts = alertsRes.status === 'fulfilled' ? alertsRes.value : []
+    spaceWeatherCache = { kpIndex, alerts, fetchedAt: Date.now() }
+    console.log('[SpaceWeather] Fetched Kp index + alerts')
+    return Response.json({ kpIndex, alerts }, { headers: CORS })
+  } catch (err) {
+    console.warn(`[SpaceWeather] Fetch failed: ${(err as Error).message}`)
+    return Response.json({ kpIndex: [], alerts: [] }, { headers: CORS })
+  }
+}
+
 // ─── INFRASTRUCTURE DATA ──────────────────────────────────────────────────
 
 interface InfraCacheEntry { data: unknown; fetchedAt: number }
@@ -1845,6 +1876,7 @@ Bun.serve<{ path: string }>({
     if (url.pathname === '/api/economic/indicators') return handleEconomicIndicators()
     if (url.pathname === '/api/hexdb/lookup') return handleHexdbLookup(url)
     if (url.pathname === '/api/hexdb/image') return handleHexdbImage(url)
+    if (url.pathname === '/api/space-weather') return handleSpaceWeather()
     if (url.pathname === '/api/infrastructure/datacenters') return handleInfraDatacenters()
     if (url.pathname === '/api/infrastructure/frontlines') return handleInfraFrontlines()
     if (url.pathname === '/api/infrastructure/surveillance') return handleInfraSurveillance()

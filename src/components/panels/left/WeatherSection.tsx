@@ -7,6 +7,7 @@ import { SourceBadge } from '@/components/ui/SourceBadge'
 import { ConfidencePip } from '@/components/ui/ConfidencePip'
 import { computeConfidence } from '@/lib/confidence'
 import { useWeatherStore } from '@/stores/weather-store'
+import { useSpaceWeatherStore } from '@/stores/space-weather-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { MasterToggle, TypeToggle } from './shared'
 import { PipelineError } from '@/components/ui/PipelineError'
@@ -24,6 +25,7 @@ function timeAgo(ms: number): string {
 export function WeatherSection({ expanded, onToggle }: { expanded: boolean; onToggle: () => void }) {
   const { events, version, count, errors, typeToggles, toggleType, enableAllTypes, disableAllTypes, radarEnabled, toggleRadar } = useWeatherStore()
   const { selectedEventId, selectEvent } = useSelectionStore()
+  const { currentKp, alerts: spaceAlerts } = useSpaceWeatherStore()
 
   const [expandedTypes, setExpandedTypes] = useState<Set<WeatherEventType>>(new Set())
 
@@ -83,6 +85,21 @@ export function WeatherSection({ expanded, onToggle }: { expanded: boolean; onTo
             >
               {radarEnabled ? '✓' : ''}
             </button>
+          </div>
+
+          {/* Space weather indicator */}
+          <div className="flex items-center gap-2 pl-4 pr-3 py-1.5 border-b border-zinc-800/40">
+            <span className="text-[12px]" style={{ color: currentKp >= 5 ? '#f87171' : currentKp >= 4 ? '#fbbf24' : '#4ade80' }}>☀</span>
+            <span className="font-mono text-[11px] text-zinc-400 flex-1">Space Weather</span>
+            <span className={cn(
+              'font-mono text-[10px] px-1.5 py-0.5 rounded',
+              currentKp >= 5 ? 'text-red-400 bg-red-950/40' : currentKp >= 4 ? 'text-amber-400 bg-amber-950/40' : 'text-green-400 bg-green-950/40'
+            )}>
+              Kp {currentKp.toFixed(1)}
+            </span>
+            {spaceAlerts.length > 0 && (
+              <span className="font-mono text-[10px] text-amber-400">{spaceAlerts.length} alert{spaceAlerts.length > 1 ? 's' : ''}</span>
+            )}
           </div>
 
           {WEATHER_EVENT_TYPES.map(type => {
