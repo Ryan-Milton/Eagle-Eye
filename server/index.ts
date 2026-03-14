@@ -393,7 +393,7 @@ async function fetchEONETWithFallback(
   throw new Error(`All endpoints failed (${attemptErrors.join('; ')})`)
 }
 
-const SOURCE_NAMES = ['USGS Earthquakes', 'NASA EONET', 'NWS Alerts', 'NASA FIRMS', 'GDACS'] as const
+const BASE_SOURCE_NAMES = ['USGS Earthquakes', 'NASA EONET', 'NWS Alerts'] as const
 
 async function fetchWeatherEvents(): Promise<{ events: unknown[]; errors: string[] }> {
   if (weatherCache && Date.now() - weatherCache.fetchedAt < WEATHER_CACHE_TTL) {
@@ -420,13 +420,15 @@ async function fetchWeatherEvents(): Promise<{ events: unknown[]; errors: string
         return r.json()
       })
       .then(json => parseNWSAlerts(json)),
-    // NASA FIRMS — fire/thermal anomaly hotspots
-    withTimeout('https://firms.modaps.eosdis.nasa.gov/api/area/csv/MODIS_NRT/world/1')
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.text()
-      })
-      .then(csv => parseFIRMSHotspots(csv)),
+    // NASA FIRMS — fire/thermal anomaly hotspots (requires free MAP_KEY from https://firms.modaps.eosdis.nasa.gov/api/area/)
+    ...(process.env.FIRMS_MAP_KEY
+      ? [withTimeout(`https://firms.modaps.eosdis.nasa.gov/api/area/csv/${process.env.FIRMS_MAP_KEY}/MODIS_NRT/world/1`)
+          .then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`)
+            return r.text()
+          })
+          .then(csv => parseFIRMSHotspots(csv))]
+      : (console.warn('[Weather] FIRMS_MAP_KEY not set — skipping fire hotspots'), [])),
     // GDACS — global disaster alerts
     withTimeout('https://www.gdacs.org/xml/rss.xml')
       .then(r => {
@@ -436,6 +438,11 @@ async function fetchWeatherEvents(): Promise<{ events: unknown[]; errors: string
       .then(xml => parseGDACSAlerts(xml)),
   ])
 
+  const sourceNames = [
+    ...BASE_SOURCE_NAMES,
+    ...(process.env.FIRMS_MAP_KEY ? ['NASA FIRMS'] : []),
+    'GDACS',
+  ]
   const events: unknown[] = []
   const errors: string[] = []
   for (let i = 0; i < results.length; i++) {
@@ -443,7 +450,7 @@ async function fetchWeatherEvents(): Promise<{ events: unknown[]; errors: string
     if (result.status === 'fulfilled' && Array.isArray(result.value)) {
       events.push(...result.value)
     } else if (result.status === 'rejected') {
-      const msg = `${SOURCE_NAMES[i]}: ${result.reason?.message ?? 'Unknown error'}`
+      const msg = `${sourceNames[i] ?? `Source ${i}`}: ${result.reason?.message ?? 'Unknown error'}`
       errors.push(msg)
       console.warn(`[Weather] ${msg}`)
     }
@@ -1524,7 +1531,7 @@ async function fetchRFSpots(): Promise<{ spots: unknown[]; errors: string[] }> {
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then(json => parseSatNOGSObservations(json)),
     // KiwiSDR — global SDR receiver network
-    fetch('http://kiwisdr.com/public/', {
+    fetch('https://kiwisdr.com/public/', {
       signal: AbortSignal.timeout(15_000),
       headers: { Accept: 'application/json' },
     })

@@ -15,7 +15,7 @@ export const usePortStore = create<PortState>()((set, get) => ({
   ports: new Map(),
   version: 0,
   count: 0,
-  visible: true,
+  visible: false,
   lastFetch: null,
 
   setPorts: (ports) => {

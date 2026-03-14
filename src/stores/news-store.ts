@@ -10,11 +10,11 @@ function loadToggles(): Map<NewsCategory, boolean> {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored) {
       const obj = JSON.parse(stored) as Record<string, boolean>
-      for (const t of NEWS_CATEGORIES) map.set(t, obj[t] ?? true)
+      for (const t of NEWS_CATEGORIES) map.set(t, obj[t] ?? false)
       return map
     }
   } catch { /* ignore */ }
-  for (const t of NEWS_CATEGORIES) map.set(t, true)
+  for (const t of NEWS_CATEGORIES) map.set(t, false)
   return map
 }
 

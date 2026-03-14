@@ -212,8 +212,9 @@ export function RightPanel() {
 }
 
 function IntelligenceFeed() {
-  const alerts = useAlertStore(s => s.alerts)
-  const unackCount = useAlertStore(s => s.unacknowledgedCount)
+  const allAlerts = useAlertStore(s => s.alerts)
+  const alerts = allAlerts.filter(a => a.domain !== 'cyber')
+  const unackCount = alerts.filter(a => !a.acknowledged).length
   const acknowledge = useAlertStore(s => s.acknowledge)
   const acknowledgeAll = useAlertStore(s => s.acknowledgeAll)
   const { posts, platformToggles, version, count } = useOsintStore()

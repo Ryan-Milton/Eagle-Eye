@@ -10,7 +10,7 @@ function loadToggles(): Map<RFSource, boolean> {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored) return new Map(JSON.parse(stored))
   } catch { /* ignore */ }
-  return new Map([['psk', true], ['rbn', true], ['satnogs', true], ['kiwisdr', true]])
+  return new Map([['psk', false], ['rbn', false], ['satnogs', false], ['kiwisdr', false]])
 }
 
 function saveToggles(toggles: Map<RFSource, boolean>) {

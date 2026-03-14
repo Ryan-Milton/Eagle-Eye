@@ -661,6 +661,7 @@ function addEntityLayers(map: mapboxgl.Map) {
     id: 'cyber-events-layer',
     type: 'circle',
     source: 'cyber-events',
+    layout: { visibility: 'none' },
     paint: {
       'circle-radius': [
         'case',
@@ -683,6 +684,7 @@ function addEntityLayers(map: mapboxgl.Map) {
     id: 'osint-posts-layer',
     type: 'circle',
     source: 'osint-posts',
+    layout: { visibility: 'none' },
     paint: {
       'circle-radius': 2,
       'circle-color': ['get', 'color'],
@@ -828,6 +830,7 @@ function addEntityLayers(map: mapboxgl.Map) {
   map.addSource('radio-feeds', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
   map.addLayer({
     id: 'radio-feeds-layer', type: 'circle', source: 'radio-feeds',
+    layout: { visibility: 'none' },
     paint: {
       'circle-radius': 3.5, 'circle-color': '#f87171',
       'circle-opacity': 0.7, 'circle-stroke-width': 1, 'circle-stroke-color': '#f87171', 'circle-stroke-opacity': 0.3,
@@ -838,6 +841,7 @@ function addEntityLayers(map: mapboxgl.Map) {
   map.addSource('fleet-carriers', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
   map.addLayer({
     id: 'fleet-carriers-layer', type: 'circle', source: 'fleet-carriers',
+    layout: { visibility: 'none' },
     paint: {
       'circle-radius': 7, 'circle-color': '#1e3a5f',
       'circle-opacity': 0.9, 'circle-stroke-width': 2.5, 'circle-stroke-color': '#3b82f6',
@@ -846,6 +850,7 @@ function addEntityLayers(map: mapboxgl.Map) {
   map.addLayer({
     id: 'fleet-carriers-labels', type: 'symbol', source: 'fleet-carriers',
     layout: {
+      visibility: 'none',
       'text-field': ['get', 'hull'],
       'text-size': 9,
       'text-offset': [0, 1.5],
@@ -902,6 +907,7 @@ export function MapboxGlobeView() {
   const [vizPopoverOpen, setVizPopoverOpen] = useState(false)
   const vizPopoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const layersReadyRef = useRef(false)
+  const [layersReady, setLayersReady] = useState(false)
 
   // Read from stores
   const toggles = useSatelliteStore(s => s.toggles)
@@ -982,6 +988,7 @@ export function MapboxGlobeView() {
       map.setFog(FOG_CONFIGS[fogKey])
       addEntityLayers(map)
       layersReadyRef.current = true
+      setLayersReady(true)
     })
 
     // Click handlers use store actions directly (stable references)
@@ -1084,6 +1091,7 @@ export function MapboxGlobeView() {
     return () => {
       if (scanTimer) clearTimeout(scanTimer)
       layersReadyRef.current = false
+      setLayersReady(false)
       map.remove()
       mapRef.current = null
       setMapReady(false)
@@ -1106,6 +1114,7 @@ export function MapboxGlobeView() {
       map.setFog(FOG_CONFIGS[mapStyle])
       addEntityLayers(map)
       layersReadyRef.current = true
+      setLayersReady(true)
     }
     map.on('style.load', onStyleLoad)
     return () => { map.off('style.load', onStyleLoad) }
@@ -1488,7 +1497,7 @@ export function MapboxGlobeView() {
   // Load fleet carrier data
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !layersReadyRef.current) return
+    if (!map || !layersReady) return
 
     fetch('/api/fleet/carriers')
       .then(r => r.json())
@@ -1502,7 +1511,7 @@ export function MapboxGlobeView() {
         if (src) src.setData({ type: 'FeatureCollection', features })
       })
       .catch(err => console.warn('[Fleet] Failed to load carriers:', err))
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [layersReady])
 
   // Sync weather radar overlay
   useEffect(() => {

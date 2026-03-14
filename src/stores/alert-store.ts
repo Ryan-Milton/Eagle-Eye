@@ -27,6 +27,9 @@ export const useAlertStore = create<AlertState>()((set, get) => ({
   unacknowledgedCount: 0,
 
   addAlert: (alert) => {
+    // Block cyber alerts from entering the store
+    if (alert.domain === 'cyber') return
+
     // Deduplicate by domain + entityId (or title + description if no entityId)
     const existing = get().alerts
     if (alert.entityId) {

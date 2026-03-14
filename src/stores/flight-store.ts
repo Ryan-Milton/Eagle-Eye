@@ -11,11 +11,11 @@ function loadToggles(): Map<FlightType, boolean> {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored) {
       const obj = JSON.parse(stored) as Record<string, boolean>
-      for (const t of FLIGHT_TYPES) map.set(t, obj[t] ?? true)
+      for (const t of FLIGHT_TYPES) map.set(t, obj[t] ?? false)
       return map
     }
   } catch { /* ignore */ }
-  for (const t of FLIGHT_TYPES) map.set(t, true)
+  for (const t of FLIGHT_TYPES) map.set(t, false)
   return map
 }
 
