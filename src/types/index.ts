@@ -126,7 +126,7 @@ export interface WeatherEvent {
   lon: number
   magnitude: number | null
   geometry: GeoJSON.Geometry | null
-  source: 'usgs' | 'eonet' | 'nws'
+  source: 'usgs' | 'eonet' | 'nws' | 'firms' | 'gdacs'
   time: number
   expires: number | null
   lastUpdate: number
@@ -244,7 +244,7 @@ export interface RFSpot {
   rxLon: number
   snr: number
   time: number
-  source: 'psk' | 'rbn' | 'satnogs'
+  source: 'psk' | 'rbn' | 'satnogs' | 'kiwisdr'
 }
 
 // ─── OSINT ────────────────────────────────────────────────────────────────

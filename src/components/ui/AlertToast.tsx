@@ -29,6 +29,7 @@ export function AlertToastContainer() {
     if (alerts.length === 0) return
     const latest = alerts[0]
     if (latest.id === lastAlertIdRef.current) return
+    if (latest.domain === 'cyber') return
     lastAlertIdRef.current = latest.id
 
     // Add toast

@@ -18,6 +18,8 @@ import { useCameraStore } from '@/stores/camera-store'
 import { useRFStore } from '@/stores/rf-store'
 // import { useEconomicStore } from '@/stores/economic-store'
 import { useInfrastructureStore, INFRASTRUCTURE_COLORS, type InfrastructureLayerType } from '@/stores/infrastructure-store'
+import { useRadioStore } from '@/stores/radio-store'
+import { SentinelOverlay } from './SentinelOverlay'
 import { useSelectionStore } from '@/stores/selection-store'
 import { useAppStore } from '@/stores/app-store'
 import { WEATHER_TYPE_DOT_COLORS, NEWS_CATEGORY_DOT_COLORS, CONFLICT_TYPE_DOT_COLORS, CYBER_TYPE_DOT_COLORS, OSINT_PLATFORM_DOT_COLORS, RF_SOURCE_DOT_COLORS, PORT_SIZE_DOT_COLORS } from '@/lib/colors'
@@ -354,7 +356,7 @@ function buildPortGeoJSON(
   return { type: 'FeatureCollection', features }
 }
 
-type RFSource = 'psk' | 'rbn' | 'satnogs'
+type RFSource = 'psk' | 'rbn' | 'satnogs' | 'kiwisdr'
 
 function buildRFGeoJSON(
   spots: Map<string, RFSpot>,
@@ -659,6 +661,7 @@ function addEntityLayers(map: mapboxgl.Map) {
     id: 'cyber-events-layer',
     type: 'circle',
     source: 'cyber-events',
+    layout: { visibility: 'none' },
     paint: {
       'circle-radius': [
         'case',
@@ -681,6 +684,7 @@ function addEntityLayers(map: mapboxgl.Map) {
     id: 'osint-posts-layer',
     type: 'circle',
     source: 'osint-posts',
+    layout: { visibility: 'none' },
     paint: {
       'circle-radius': 2,
       'circle-color': ['get', 'color'],
@@ -791,6 +795,84 @@ function addEntityLayers(map: mapboxgl.Map) {
     paint: { 'line-color': INFRASTRUCTURE_COLORS.chokepoints, 'line-width': 1.5, 'line-opacity': 0.5 },
   })
 
+  // Datacenters — circle markers
+  map.addSource('infra-datacenters', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({
+    id: 'infra-datacenters-layer', type: 'circle', source: 'infra-datacenters',
+    paint: {
+      'circle-radius': 3, 'circle-color': INFRASTRUCTURE_COLORS.datacenters,
+      'circle-opacity': 0.7, 'circle-stroke-width': 1, 'circle-stroke-color': INFRASTRUCTURE_COLORS.datacenters, 'circle-stroke-opacity': 0.3,
+    },
+  })
+
+  // Conflict frontlines — fill + outline
+  map.addSource('infra-frontlines', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({
+    id: 'infra-frontlines-fill', type: 'fill', source: 'infra-frontlines',
+    paint: { 'fill-color': INFRASTRUCTURE_COLORS.frontlines, 'fill-opacity': 0.15 },
+  })
+  map.addLayer({
+    id: 'infra-frontlines-outline', type: 'line', source: 'infra-frontlines',
+    paint: { 'line-color': INFRASTRUCTURE_COLORS.frontlines, 'line-width': 2, 'line-opacity': 0.7 },
+  })
+
+  // Surveillance cameras — small dots
+  map.addSource('infra-surveillance', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({
+    id: 'infra-surveillance-layer', type: 'circle', source: 'infra-surveillance',
+    paint: {
+      'circle-radius': 2, 'circle-color': INFRASTRUCTURE_COLORS.surveillance,
+      'circle-opacity': 0.5, 'circle-stroke-width': 0,
+    },
+  })
+
+  // --- Radio feeds ---
+  map.addSource('radio-feeds', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({
+    id: 'radio-feeds-layer', type: 'circle', source: 'radio-feeds',
+    layout: { visibility: 'none' },
+    paint: {
+      'circle-radius': 3.5, 'circle-color': '#f87171',
+      'circle-opacity': 0.7, 'circle-stroke-width': 1, 'circle-stroke-color': '#f87171', 'circle-stroke-opacity': 0.3,
+    },
+  })
+
+  // --- Fleet carriers ---
+  map.addSource('fleet-carriers', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({
+    id: 'fleet-carriers-layer', type: 'circle', source: 'fleet-carriers',
+    layout: { visibility: 'none' },
+    paint: {
+      'circle-radius': 7, 'circle-color': '#1e3a5f',
+      'circle-opacity': 0.9, 'circle-stroke-width': 2.5, 'circle-stroke-color': '#3b82f6',
+    },
+  })
+  map.addLayer({
+    id: 'fleet-carriers-labels', type: 'symbol', source: 'fleet-carriers',
+    layout: {
+      visibility: 'none',
+      'text-field': ['get', 'hull'],
+      'text-size': 9,
+      'text-offset': [0, 1.5],
+      'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+    },
+    paint: { 'text-color': '#93c5fd', 'text-halo-color': '#000', 'text-halo-width': 1 },
+  })
+
+  // --- Weather radar raster overlay ---
+  map.addSource('radar-tiles', {
+    type: 'raster',
+    tiles: ['https://tilecache.rainviewer.com/v2/radar/nowcast/256/{z}/{x}/{y}/2/1_1.png'],
+    tileSize: 256,
+  })
+  map.addLayer({
+    id: 'radar-layer',
+    type: 'raster',
+    source: 'radar-tiles',
+    paint: { 'raster-opacity': 0.5 },
+    layout: { visibility: 'none' },
+  })
+
   // --- Economic indicators (disabled) ---
   // map.addSource('economic', {
   //   type: 'geojson',
@@ -825,6 +907,7 @@ export function MapboxGlobeView() {
   const [vizPopoverOpen, setVizPopoverOpen] = useState(false)
   const vizPopoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const layersReadyRef = useRef(false)
+  const [layersReady, setLayersReady] = useState(false)
 
   // Read from stores
   const toggles = useSatelliteStore(s => s.toggles)
@@ -843,6 +926,8 @@ export function MapboxGlobeView() {
   const weatherEvents = useWeatherStore(s => s.events)
   const weatherVersion = useWeatherStore(s => s.version)
   const weatherTypeToggles = useWeatherStore(s => s.typeToggles)
+  const radarEnabled = useWeatherStore(s => s.radarEnabled)
+  const radarTilePath = useWeatherStore(s => s.radarTilePath)
   const newsEvents = useNewsStore(s => s.events)
   const newsVersion = useNewsStore(s => s.version)
   const newsCategoryToggles = useNewsStore(s => s.categoryToggles)
@@ -864,6 +949,8 @@ export function MapboxGlobeView() {
   // const econIndicators = useEconomicStore(s => s.indicators)
   // const econVersion = useEconomicStore(s => s.version)
   // const selectedIndicator = useEconomicStore(s => s.selectedIndicator)
+  const radioFeeds = useRadioStore(s => s.feeds)
+  const radioVersion = useRadioStore(s => s.version)
   const cameraData = useCameraStore(s => s.cameras)
   const cameraVersion = useCameraStore(s => s.version)
   const cameraVisible = useCameraStore(s => s.visible)
@@ -901,6 +988,7 @@ export function MapboxGlobeView() {
       map.setFog(FOG_CONFIGS[fogKey])
       addEntityLayers(map)
       layersReadyRef.current = true
+      setLayersReady(true)
     })
 
     // Click handlers use store actions directly (stable references)
@@ -1003,6 +1091,7 @@ export function MapboxGlobeView() {
     return () => {
       if (scanTimer) clearTimeout(scanTimer)
       layersReadyRef.current = false
+      setLayersReady(false)
       map.remove()
       mapRef.current = null
       setMapReady(false)
@@ -1025,6 +1114,7 @@ export function MapboxGlobeView() {
       map.setFog(FOG_CONFIGS[mapStyle])
       addEntityLayers(map)
       layersReadyRef.current = true
+      setLayersReady(true)
     }
     map.on('style.load', onStyleLoad)
     return () => { map.off('style.load', onStyleLoad) }
@@ -1364,12 +1454,18 @@ export function MapboxGlobeView() {
       pipelines: 'infra-pipelines',
       nuclear: 'infra-nuclear',
       chokepoints: 'infra-chokepoints',
+      datacenters: 'infra-datacenters',
+      frontlines: 'infra-frontlines',
+      surveillance: 'infra-surveillance',
     }
     const fileMap: Record<InfrastructureLayerType, string> = {
       cables: '/data/undersea-cables.geojson',
       pipelines: '/data/pipelines.geojson',
       nuclear: '/data/nuclear-facilities.geojson',
       chokepoints: '/data/chokepoints.geojson',
+      datacenters: '/api/infrastructure/datacenters',
+      frontlines: '/api/infrastructure/frontlines',
+      surveillance: '/api/infrastructure/surveillance',
     }
 
     for (const [layer, enabled] of infraToggles) {
@@ -1397,6 +1493,40 @@ export function MapboxGlobeView() {
       }
     }
   }, [infraToggles])
+
+  // Load fleet carrier data
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReady) return
+
+    fetch('/api/fleet/carriers')
+      .then(r => r.json())
+      .then((data: { carriers?: Array<{ name: string; hull: string; lat: number; lon: number; region: string }> }) => {
+        const features = (data.carriers ?? []).map(c => ({
+          type: 'Feature' as const,
+          geometry: { type: 'Point' as const, coordinates: [c.lon, c.lat] },
+          properties: { name: c.name, hull: c.hull, region: c.region },
+        }))
+        const src = map.getSource('fleet-carriers') as mapboxgl.GeoJSONSource | undefined
+        if (src) src.setData({ type: 'FeatureCollection', features })
+      })
+      .catch(err => console.warn('[Fleet] Failed to load carriers:', err))
+  }, [layersReady])
+
+  // Sync weather radar overlay
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+
+    map.setLayoutProperty('radar-layer', 'visibility', radarEnabled ? 'visible' : 'none')
+
+    if (radarEnabled && radarTilePath) {
+      const src = map.getSource('radar-tiles') as mapboxgl.RasterTileSource | undefined
+      if (src && typeof (src as any).setTiles === 'function') {
+        (src as any).setTiles([`https://tilecache.rainviewer.com${radarTilePath}/256/{z}/{x}/{y}/2/1_1.png`])
+      }
+    }
+  }, [radarEnabled, radarTilePath])
 
   // Camera feed popup
   useEffect(() => {
@@ -1493,6 +1623,21 @@ export function MapboxGlobeView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toggles, getPositions, selectedSatId, satVersion, vessels, selectedMmsi, vesselVersion, vesselTypeToggles, flights, selectedIcao, flightVersion, flightTypeToggles, flightHistory, vesselHistory, weatherEvents, selectedEventId, weatherVersion, weatherTypeToggles, newsEvents, selectedNewsId, newsVersion, newsCategoryToggles, conflictEvents, selectedConflictId, conflictVersion, conflictTypeToggles, cyberEvents, selectedCyberId, cyberVersion, cyberTypeToggles, osintPosts, osintVersion, osintPlatformToggles, portData, portVersion, portVisible, rfSpots, rfVersion, rfSourceToggles, cameraData, cameraVersion, cameraVisible, cursorForFilter])
 
+  // Sync radio feeds
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !layersReadyRef.current) return
+    void radioVersion
+
+    const features = [...radioFeeds.values()].map(f => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [f.lon, f.lat] },
+      properties: { name: f.name, listeners: f.listeners },
+    }))
+    const src = map.getSource('radio-feeds') as mapboxgl.GeoJSONSource | undefined
+    if (src) src.setData({ type: 'FeatureCollection', features })
+  }, [radioFeeds, radioVersion])
+
   const filterStyle = vizMode === 'thermal'
     ? `grayscale(1) brightness(${vizBrightness}) contrast(${vizContrast})`
     : vizMode === 'nvg'
@@ -1506,6 +1651,20 @@ export function MapboxGlobeView() {
         className="w-full h-full"
         style={{ filter: filterStyle }}
       />
+
+      {/* Sentinel-2 imagery search overlay */}
+      {mapReady && (
+        <SentinelOverlay
+          mapRef={mapRef}
+          getBounds={() => {
+            const map = mapRef.current
+            if (!map) return null
+            const b = map.getBounds()
+            if (!b) return null
+            return { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() }
+          }}
+        />
+      )}
 
       {/* CRT scanline + phosphor overlay */}
       {vizMode === 'crt' && (

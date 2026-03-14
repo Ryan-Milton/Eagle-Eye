@@ -1,5 +1,113 @@
 import type { WeatherEvent, WeatherEventType } from '@/types'
 
+// ─── NASA FIRMS ──────────────────────────────────────────────────────────
+
+/** Parse NASA FIRMS CSV fire hotspots into WeatherEvent[] */
+export function parseFIRMSHotspots(csv: string): WeatherEvent[] {
+  const lines = csv.trim().split('\n')
+  if (lines.length < 2) return []
+
+  const header = lines[0].split(',')
+  const latIdx = header.indexOf('latitude')
+  const lonIdx = header.indexOf('longitude')
+  const brightIdx = header.indexOf('brightness')
+  const confIdx = header.indexOf('confidence')
+  const dateIdx = header.indexOf('acq_date')
+  const timeIdx = header.indexOf('acq_time')
+
+  if (latIdx < 0 || lonIdx < 0) return []
+
+  const events: WeatherEvent[] = []
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',')
+    const lat = parseFloat(cols[latIdx])
+    const lon = parseFloat(cols[lonIdx])
+    if (isNaN(lat) || isNaN(lon)) continue
+
+    const confidence = parseInt(cols[confIdx] ?? '0') || 0
+    if (confidence < 80) continue // filter low-confidence detections
+
+    const brightness = parseFloat(cols[brightIdx] ?? '0') || 0
+    const dateStr = cols[dateIdx] ?? ''
+    const timeStr = cols[timeIdx] ?? ''
+    const time = dateStr ? new Date(`${dateStr}T${timeStr.padStart(4, '0').slice(0, 2)}:${timeStr.padStart(4, '0').slice(2)}Z`).getTime() : Date.now()
+
+    events.push({
+      id: `firms-${lat.toFixed(3)}-${lon.toFixed(3)}-${i}`,
+      type: 'wildfire',
+      title: `Fire Hotspot (${brightness.toFixed(0)}K)`,
+      description: `Confidence: ${confidence}% | Brightness: ${brightness.toFixed(1)}K`,
+      lat,
+      lon,
+      magnitude: brightness,
+      geometry: null,
+      source: 'firms',
+      time: isNaN(time) ? Date.now() : time,
+      expires: null,
+      lastUpdate: Date.now(),
+    })
+  }
+  return events
+}
+
+// ─── GDACS ───────────────────────────────────────────────────────────────
+
+const GDACS_TYPE_MAP: Record<string, WeatherEventType> = {
+  eq: 'earthquake', earthquake: 'earthquake',
+  tc: 'storm', cyclone: 'storm', storm: 'storm',
+  fl: 'flood', flood: 'flood',
+  vo: 'volcano', volcano: 'volcano',
+  dr: 'drought', drought: 'drought',
+  wf: 'wildfire', wildfire: 'wildfire',
+}
+
+/** Parse GDACS RSS XML into WeatherEvent[] */
+export function parseGDACSAlerts(xml: string): WeatherEvent[] {
+  const events: WeatherEvent[] = []
+  const itemRegex = /<item>([\s\S]*?)<\/item>/g
+  let match
+
+  while ((match = itemRegex.exec(xml)) !== null) {
+    const item = match[1]
+
+    const title = item.match(/<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/)?.[1] ?? ''
+    const desc = item.match(/<description>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/description>/)?.[1] ?? ''
+    const link = item.match(/<link>(.*?)<\/link>/)?.[1] ?? ''
+    const pubDate = item.match(/<pubDate>(.*?)<\/pubDate>/)?.[1]
+    const lat = parseFloat(item.match(/<geo:lat>([\d.-]+)<\/geo:lat>/)?.[1] ?? '') ||
+                parseFloat(item.match(/<gdacs:lat>([\d.-]+)/)?.[1] ?? '')
+    const lon = parseFloat(item.match(/<geo:long>([\d.-]+)<\/geo:long>/)?.[1] ?? '') ||
+                parseFloat(item.match(/<gdacs:lon>([\d.-]+)/)?.[1] ?? '')
+
+    if (isNaN(lat) || isNaN(lon)) continue
+
+    // Determine event type from title/description
+    const lowerTitle = title.toLowerCase()
+    let type: WeatherEventType = 'alert'
+    for (const [key, value] of Object.entries(GDACS_TYPE_MAP)) {
+      if (lowerTitle.includes(key)) { type = value; break }
+    }
+
+    const time = pubDate ? new Date(pubDate).getTime() : Date.now()
+
+    events.push({
+      id: `gdacs-${link || `${lat}-${lon}-${time}`}`,
+      type,
+      title: title || 'GDACS Alert',
+      description: desc.replace(/<[^>]+>/g, '').slice(0, 500),
+      lat,
+      lon,
+      magnitude: null,
+      geometry: null,
+      source: 'gdacs',
+      time: isNaN(time) ? Date.now() : time,
+      expires: null,
+      lastUpdate: Date.now(),
+    })
+  }
+  return events
+}
+
 /** Parse USGS GeoJSON earthquake feed into WeatherEvent[] */
 export function parseUSGSEarthquakes(geojson: unknown): WeatherEvent[] {
   const data = geojson as { features?: unknown[] }

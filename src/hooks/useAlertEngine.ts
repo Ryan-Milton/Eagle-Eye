@@ -93,28 +93,8 @@ export function useAlertEngine() {
     }
   }, [conflictVersion])
 
-  // Cyber alerts
-  useEffect(() => {
-    const events = useCyberStore.getState().events
-    const addAlert = useAlertStore.getState().addAlert
-    const seen = seenRef.current
-
-    for (const [, e] of events) {
-      const key = `cyb-${e.id}`
-      if (seen.has(key)) continue
-      seen.add(key)
-
-      if (e.severity >= 8) {
-        addAlert({
-          title: `Critical ${e.type.toUpperCase()} Threat`,
-          description: e.title,
-          severity: 'critical',
-          domain: 'cyber',
-          entityId: e.id,
-        })
-      }
-    }
-  }, [cyberVersion])
+  // Cyber alerts — disabled (too noisy for sidebar)
+  void cyberVersion
 
   // Military vessel alerts
   useEffect(() => {
@@ -299,10 +279,7 @@ export function useAlertEngine() {
       entities.push({ domain: 'conflict', id: e.id, title: e.title, description: `${e.type} — ${e.fatalities} fatalities`, lat: e.lat, lon: e.lon, severity: e.fatalities })
     }
 
-    const cyberEvents = useCyberStore.getState().events
-    for (const [, e] of cyberEvents) {
-      entities.push({ domain: 'cyber', id: e.id, title: e.title, description: e.type, lat: e.lat, lon: e.lon, severity: e.severity })
-    }
+    // Cyber events excluded from alert rules
 
     const gfs = useGeofenceStore.getState().geofences
 

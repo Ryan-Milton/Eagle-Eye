@@ -102,6 +102,56 @@ export function parseSatNOGSObservations(json: unknown): RFSpot[] {
     }))
 }
 
+/**
+ * Parse KiwiSDR receiver network listing.
+ */
+export function parseKiwiSDRReceivers(json: unknown): RFSpot[] {
+  // KiwiSDR returns an array of receiver objects
+  const data = json as Array<{
+    n?: string      // name
+    h?: string      // hostname
+    p?: number      // port
+    u?: number      // users/listeners
+    um?: number     // max users
+    gps?: string    // "lat,lon" or "(lat, lon)"
+    f?: number      // frequency (kHz)
+    b?: string      // bands
+    lo?: number     // low freq
+    hi?: number     // high freq
+    s?: string      // status
+    a?: string      // antenna
+  }>
+
+  if (!Array.isArray(data)) return []
+
+  const spots: RFSpot[] = []
+  for (let i = 0; i < data.length; i++) {
+    const r = data[i]
+    if (!r.gps || !r.n) continue
+    const gpsClean = (r.gps ?? '').replace(/[()]/g, '')
+    const parts = gpsClean.split(',').map(s => parseFloat(s.trim()))
+    const lat = parts[0] ?? 0
+    const lon = parts[1] ?? 0
+    if (isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0)) continue
+
+    spots.push({
+      id: `kiwisdr-${r.h ?? i}`,
+      frequency: (r.lo ?? r.f ?? 0) * 1000, // kHz to Hz
+      mode: 'SDR',
+      txCall: '',
+      txLat: 0,
+      txLon: 0,
+      rxCall: r.n ?? r.h ?? '',
+      rxLat: lat,
+      rxLon: lon,
+      snr: r.u ?? 0, // use listener count as a proxy
+      time: Date.now(),
+      source: 'kiwisdr',
+    })
+  }
+  return spots
+}
+
 // Frequency band labels
 export const RF_BANDS: Record<string, [number, number]> = {
   'HF': [3_000_000, 30_000_000],

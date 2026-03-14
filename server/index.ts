@@ -349,7 +349,7 @@ poll()
 
 // ─── WEATHER PROXY ──────────────────────────────────────────────────────────
 
-import { parseUSGSEarthquakes, parseEONETEvents, parseNWSAlerts } from '../src/lib/weather-client'
+import { parseUSGSEarthquakes, parseEONETEvents, parseNWSAlerts, parseFIRMSHotspots, parseGDACSAlerts } from '../src/lib/weather-client'
 
 interface WeatherCacheEntry {
   events: unknown[]
@@ -393,7 +393,7 @@ async function fetchEONETWithFallback(
   throw new Error(`All endpoints failed (${attemptErrors.join('; ')})`)
 }
 
-const SOURCE_NAMES = ['USGS Earthquakes', 'NASA EONET', 'NWS Alerts'] as const
+const BASE_SOURCE_NAMES = ['USGS Earthquakes', 'NASA EONET', 'NWS Alerts'] as const
 
 async function fetchWeatherEvents(): Promise<{ events: unknown[]; errors: string[] }> {
   if (weatherCache && Date.now() - weatherCache.fetchedAt < WEATHER_CACHE_TTL) {
@@ -420,8 +420,29 @@ async function fetchWeatherEvents(): Promise<{ events: unknown[]; errors: string
         return r.json()
       })
       .then(json => parseNWSAlerts(json)),
+    // NASA FIRMS — fire/thermal anomaly hotspots (requires free MAP_KEY from https://firms.modaps.eosdis.nasa.gov/api/area/)
+    ...(process.env.FIRMS_MAP_KEY
+      ? [withTimeout(`https://firms.modaps.eosdis.nasa.gov/api/area/csv/${process.env.FIRMS_MAP_KEY}/MODIS_NRT/world/1`)
+          .then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`)
+            return r.text()
+          })
+          .then(csv => parseFIRMSHotspots(csv))]
+      : (console.warn('[Weather] FIRMS_MAP_KEY not set — skipping fire hotspots'), [])),
+    // GDACS — global disaster alerts
+    withTimeout('https://www.gdacs.org/xml/rss.xml')
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.text()
+      })
+      .then(xml => parseGDACSAlerts(xml)),
   ])
 
+  const sourceNames = [
+    ...BASE_SOURCE_NAMES,
+    ...(process.env.FIRMS_MAP_KEY ? ['NASA FIRMS'] : []),
+    'GDACS',
+  ]
   const events: unknown[] = []
   const errors: string[] = []
   for (let i = 0; i < results.length; i++) {
@@ -429,7 +450,7 @@ async function fetchWeatherEvents(): Promise<{ events: unknown[]; errors: string
     if (result.status === 'fulfilled' && Array.isArray(result.value)) {
       events.push(...result.value)
     } else if (result.status === 'rejected') {
-      const msg = `${SOURCE_NAMES[i]}: ${result.reason?.message ?? 'Unknown error'}`
+      const msg = `${sourceNames[i] ?? `Source ${i}`}: ${result.reason?.message ?? 'Unknown error'}`
       errors.push(msg)
       console.warn(`[Weather] ${msg}`)
     }
@@ -495,6 +516,10 @@ const RSS_FEEDS: Array<{ url: string; name: string }> = [
   { url: 'https://feeds.bbci.co.uk/news/world/rss.xml', name: 'BBC' },
   { url: 'https://www.aljazeera.com/xml/rss/all.xml', name: 'Al Jazeera' },
   { url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml', name: 'NYT' },
+  { url: 'https://feeds.npr.org/1004/rss.xml', name: 'NPR' },
+  { url: 'https://www3.nhk.or.jp/rss/news/cat0.xml', name: 'NHK' },
+  { url: 'https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml', name: 'CNA' },
+  { url: 'https://en.mercopress.com/rss', name: 'Mercopress' },
 ]
 
 async function fetchGdeltNews(): Promise<unknown[]> {
@@ -1140,7 +1165,7 @@ async function handleSanctionsCheck(url: URL): Promise<Response> {
 
 // ─── CAMERA PROXY ───────────────────────────────────────────────────────────
 
-import { parseWindyCameras, parseCameraList } from '../src/lib/camera-client'
+import { parseWindyCameras, parseCameraList, parseTfLCameras } from '../src/lib/camera-client'
 
 const WINDY_KEY = process.env.WINDY_WEBCAMS_KEY ?? ''
 
@@ -1246,6 +1271,29 @@ async function fetchCameras(): Promise<{ cameras: unknown[]; errors: string[] }>
     console.log(`[Cameras] Windy: ${cameras.length} cameras from ${CAMERA_REGIONS.length} regions`)
   } else {
     errors.push('Windy: No API key configured (WINDY_WEBCAMS_KEY)')
+  }
+
+  // TfL JamCams (London) — free, no key required
+  try {
+    const tflRes = await fetch('https://api.tfl.gov.uk/Place/Type/JamCam', {
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (tflRes.ok) {
+      const tflJson = await tflRes.json()
+      const tflCams = parseTfLCameras(tflJson)
+      for (const cam of tflCams) {
+        if (!seenIds.has(cam.id)) {
+          seenIds.add(cam.id)
+          cameras.push(cam)
+        }
+      }
+      console.log(`[Cameras] TfL: ${tflCams.length} London JamCams`)
+    } else {
+      errors.push(`TfL: HTTP ${tflRes.status}`)
+    }
+  } catch (err) {
+    errors.push(`TfL: ${(err as Error).message}`)
+    console.warn(`[Cameras] TfL failed: ${(err as Error).message}`)
   }
 
   cameraCache = { cameras, errors, fetchedAt: Date.now() }
@@ -1430,7 +1478,7 @@ async function handlePorts(): Promise<Response> {
 
 // ─── RF SPECTRUM PROXY ──────────────────────────────────────────────────────
 
-import { parsePSKReporterSpots, parseRBNSpots, parseSatNOGSObservations } from '../src/lib/rf-client'
+import { parsePSKReporterSpots, parseRBNSpots, parseSatNOGSObservations, parseKiwiSDRReceivers } from '../src/lib/rf-client'
 
 interface RFCacheEntry { spots: unknown[]; errors: string[]; fetchedAt: number }
 let rfCache: RFCacheEntry | null = null
@@ -1482,11 +1530,18 @@ async function fetchRFSpots(): Promise<{ spots: unknown[]; errors: string[] }> {
     })
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then(json => parseSatNOGSObservations(json)),
+    // KiwiSDR — global SDR receiver network
+    fetch('https://kiwisdr.com/public/', {
+      signal: AbortSignal.timeout(15_000),
+      headers: { Accept: 'application/json' },
+    })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+      .then(json => parseKiwiSDRReceivers(json)),
   ])
 
   const spots: unknown[] = []
   const errors: string[] = []
-  const sourceNames = ['PSK Reporter', 'SatNOGS']
+  const sourceNames = ['PSK Reporter', 'SatNOGS', 'KiwiSDR']
   for (let i = 0; i < results.length; i++) {
     const result = results[i]
     if (result.status === 'fulfilled') spots.push(...result.value)
@@ -1644,6 +1699,466 @@ async function handleHexdbImage(url: URL): Promise<Response> {
   }
 }
 
+// ─── SENTINEL-2 IMAGERY (STAC) ─────────────────────────────────────────────
+
+async function handleImagerySearch(url: URL): Promise<Response> {
+  const CORS = { 'Access-Control-Allow-Origin': '*' }
+  try {
+    const west = parseFloat(url.searchParams.get('west') ?? '0')
+    const south = parseFloat(url.searchParams.get('south') ?? '0')
+    const east = parseFloat(url.searchParams.get('east') ?? '0')
+    const north = parseFloat(url.searchParams.get('north') ?? '0')
+
+    if (west === 0 && east === 0) {
+      return Response.json({ features: [] }, { headers: CORS })
+    }
+
+    // Limit bbox size to prevent massive queries
+    if (Math.abs(east - west) > 10 || Math.abs(north - south) > 10) {
+      return Response.json({ features: [], error: 'Zoom in to search for imagery (max 10° bbox)' }, { headers: CORS })
+    }
+
+    const now = new Date()
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000)
+
+    const stacBody = {
+      collections: ['sentinel-2-l2a'],
+      bbox: [west, south, east, north],
+      datetime: `${thirtyDaysAgo.toISOString()}/${now.toISOString()}`,
+      limit: 10,
+      query: { 'eo:cloud_cover': { lt: 20 } },
+      sortby: [{ field: 'properties.datetime', direction: 'desc' }],
+    }
+
+    const res = await fetch('https://planetarycomputer.microsoft.com/api/stac/v1/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(stacBody),
+      signal: AbortSignal.timeout(15_000),
+    })
+
+    if (!res.ok) throw new Error(`STAC API HTTP ${res.status}`)
+    const data = await res.json()
+
+    // Sign asset URLs with SAS tokens from Planetary Computer
+    const features = (data.features ?? []) as Array<{
+      id: string
+      properties: Record<string, unknown>
+      assets: Record<string, { href: string; type?: string }>
+      bbox: number[]
+    }>
+
+    for (const feature of features) {
+      // Try to get a signed tile URL
+      try {
+        const rendered = feature.assets?.['rendered_preview']
+        if (rendered?.href) {
+          const tokenRes = await fetch(
+            `https://planetarycomputer.microsoft.com/api/sas/v1/sign?href=${encodeURIComponent(rendered.href)}`,
+            { signal: AbortSignal.timeout(5_000) }
+          )
+          if (tokenRes.ok) {
+            const signed = await tokenRes.json()
+            rendered.href = (signed as { href: string }).href
+          }
+        }
+      } catch { /* skip signing */ }
+    }
+
+    console.log(`[Imagery] STAC: ${features.length} Sentinel-2 scenes found`)
+    return Response.json(data, { headers: CORS })
+  } catch (err) {
+    console.warn(`[Imagery] STAC search failed: ${(err as Error).message}`)
+    return Response.json({ features: [] }, { headers: CORS })
+  }
+}
+
+// ─── RADIO (Broadcastify) ──────────────────────────────────────────────────
+
+interface RadioCacheEntry { feeds: unknown[]; fetchedAt: number }
+let radioCache: RadioCacheEntry | null = null
+const RADIO_TTL = 600_000 // 10 min
+
+// Known US state/city centroids for approximate radio feed geocoding
+const US_STATE_COORDS: Record<string, [number, number]> = {
+  'alabama': [32.8, -86.8], 'alaska': [64.2, -152.5], 'arizona': [34.0, -111.1],
+  'arkansas': [35.2, -91.8], 'california': [36.8, -119.4], 'colorado': [39.0, -105.5],
+  'connecticut': [41.6, -72.7], 'delaware': [39.3, -75.5], 'florida': [27.8, -81.7],
+  'georgia': [33.0, -83.6], 'hawaii': [19.9, -155.6], 'idaho': [44.2, -114.4],
+  'illinois': [40.6, -89.3], 'indiana': [40.3, -86.1], 'iowa': [42.0, -93.2],
+  'kansas': [39.0, -98.5], 'kentucky': [37.8, -85.8], 'louisiana': [31.2, -92.3],
+  'maine': [45.3, -69.4], 'maryland': [39.0, -76.6], 'massachusetts': [42.4, -71.4],
+  'michigan': [44.3, -85.6], 'minnesota': [46.7, -94.7], 'mississippi': [32.7, -89.7],
+  'missouri': [38.5, -92.3], 'montana': [46.8, -110.4], 'nebraska': [41.1, -98.3],
+  'nevada': [38.8, -116.4], 'new hampshire': [43.2, -71.6], 'new jersey': [40.1, -74.4],
+  'new mexico': [34.5, -106.0], 'new york': [43.0, -75.0], 'north carolina': [35.8, -79.8],
+  'north dakota': [47.5, -100.4], 'ohio': [40.4, -82.9], 'oklahoma': [35.0, -97.1],
+  'oregon': [43.8, -120.6], 'pennsylvania': [41.2, -77.2], 'rhode island': [41.6, -71.5],
+  'south carolina': [33.8, -80.9], 'south dakota': [43.9, -99.9], 'tennessee': [35.5, -86.6],
+  'texas': [31.0, -97.6], 'utah': [39.3, -111.1], 'vermont': [44.0, -72.7],
+  'virginia': [37.4, -78.7], 'washington': [47.8, -120.7], 'west virginia': [38.6, -80.4],
+  'wisconsin': [43.8, -89.5], 'wyoming': [43.1, -107.6], 'dc': [38.9, -77.0],
+  'los angeles': [34.1, -118.2], 'new york city': [40.7, -74.0], 'chicago': [41.9, -87.6],
+  'houston': [29.8, -95.4], 'phoenix': [33.4, -112.1], 'philadelphia': [40.0, -75.2],
+  'san antonio': [29.4, -98.5], 'san diego': [32.7, -117.2], 'dallas': [32.8, -96.8],
+}
+
+async function handleRadioFeeds(): Promise<Response> {
+  const CORS = { 'Access-Control-Allow-Origin': '*' }
+  try {
+    if (radioCache && Date.now() - radioCache.fetchedAt < RADIO_TTL) {
+      return Response.json({ feeds: radioCache.feeds }, { headers: CORS })
+    }
+
+    const feeds: Array<{ id: string; name: string; location: string; listeners: number; streamUrl: string | null; lat: number; lon: number }> = []
+
+    try {
+      const res = await fetch('https://www.broadcastify.com/listen/top', {
+        signal: AbortSignal.timeout(15_000),
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; EagleEye/1.0)',
+          Accept: 'text/html',
+        },
+      })
+      if (res.ok) {
+        const html = await res.text()
+        // Parse feed entries from HTML table rows
+        const rowRegex = /<tr[^>]*>[\s\S]*?<a\s+href="\/listen\/feed\/(\d+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/tr>/g
+        const listenerRegex = /(\d+)\s*listeners?/i
+        let match
+        while ((match = rowRegex.exec(html)) !== null) {
+          const feedId = match[1]
+          const feedContent = match[2].replace(/<[^>]+>/g, '').trim()
+          const fullRow = match[0]
+
+          // Extract listener count
+          const listenerMatch = listenerRegex.exec(fullRow)
+          const listeners = listenerMatch ? parseInt(listenerMatch[1]) : 0
+
+          // Extract location from the row text
+          const cells = fullRow.replace(/<[^>]+>/g, '\t').split('\t').map(s => s.trim()).filter(Boolean)
+          const location = cells[1] ?? '' // Usually second cell is location
+
+          // Geocode from location text
+          let lat = 0, lon = 0
+          const locationLower = (feedContent + ' ' + location).toLowerCase()
+          for (const [place, coords] of Object.entries(US_STATE_COORDS)) {
+            if (locationLower.includes(place)) {
+              lat = coords[0] + (Math.random() - 0.5) * 0.5
+              lon = coords[1] + (Math.random() - 0.5) * 0.5
+              break
+            }
+          }
+
+          if (lat !== 0 && lon !== 0) {
+            feeds.push({
+              id: `radio-${feedId}`,
+              name: feedContent.slice(0, 100),
+              location,
+              listeners,
+              streamUrl: `https://broadcastify.cdnstream1.com/${feedId}`,
+              lat, lon,
+            })
+          }
+        }
+        console.log(`[Radio] Broadcastify: ${feeds.length} feeds parsed`)
+      }
+    } catch (err) {
+      console.warn(`[Radio] Broadcastify scrape failed: ${(err as Error).message}`)
+    }
+
+    radioCache = { feeds, fetchedAt: Date.now() }
+    return Response.json({ feeds }, { headers: CORS })
+  } catch (err) {
+    console.warn(`[Radio] Failed: ${(err as Error).message}`)
+    return Response.json({ feeds: [] }, { headers: CORS })
+  }
+}
+
+// ─── FLEET TRACKER ─────────────────────────────────────────────────────────
+
+const REGION_CENTROIDS: Record<string, [number, number]> = {
+  'western pacific': [20, 140],
+  'pacific ocean': [10, -160],
+  'eastern pacific': [20, -120],
+  'south china sea': [14, 114],
+  'philippine sea': [18, 130],
+  'indian ocean': [-5, 75],
+  'arabian sea': [18, 65],
+  'persian gulf': [27, 51],
+  'red sea': [20, 38],
+  'mediterranean': [35, 18],
+  'atlantic ocean': [30, -45],
+  'north atlantic': [45, -30],
+  'caribbean': [17, -72],
+  'baltic sea': [57, 19],
+  'norwegian sea': [67, 4],
+  'homeport': [36.9, -76.3], // Norfolk, VA
+  'norfolk': [36.9, -76.3],
+  'san diego': [32.7, -117.2],
+  'bremerton': [47.6, -122.6],
+  'yokosuka': [35.3, 139.7],
+  'pearl harbor': [21.3, -157.9],
+}
+
+interface FleetCacheEntry { carriers: unknown[]; fetchedAt: number }
+let fleetCache: FleetCacheEntry | null = null
+const FLEET_TTL = 21_600_000 // 6 hours
+
+async function handleFleetTracker(): Promise<Response> {
+  const CORS = { 'Access-Control-Allow-Origin': '*' }
+  try {
+    if (fleetCache && Date.now() - fleetCache.fetchedAt < FLEET_TTL) {
+      return Response.json({ carriers: fleetCache.carriers }, { headers: CORS })
+    }
+
+    const carriers: Array<{ name: string; hull: string; region: string; lat: number; lon: number; lastUpdate: number }> = []
+
+    // Try to scrape USNI Fleet Tracker
+    try {
+      const res = await fetch('https://news.usni.org/category/fleet-tracker', {
+        signal: AbortSignal.timeout(15_000),
+        headers: { 'User-Agent': 'EagleEye/1.0 (intelligence-dashboard)' },
+      })
+      if (res.ok) {
+        const html = await res.text()
+        // Extract carrier mentions with region context
+        const carrierRegex = /USS\s+([A-Za-z\s]+)\s*\(CV[HN]*-?\d+\)/g
+        const regionRegex = /(?:deployed to|operating in|transited|in the)\s+(?:the\s+)?([A-Za-z\s]+?)(?:\.|,|;|\s+on|\s+for)/gi
+        let carrierMatch
+        const seenCarriers = new Set<string>()
+
+        while ((carrierMatch = carrierRegex.exec(html)) !== null) {
+          const carrierName = carrierMatch[0].trim()
+          if (seenCarriers.has(carrierName)) continue
+          seenCarriers.add(carrierName)
+
+          // Look for nearby region text
+          const context = html.slice(Math.max(0, carrierMatch.index - 300), carrierMatch.index + 300)
+          regionRegex.lastIndex = 0
+          const regionMatch = regionRegex.exec(context)
+          const regionText = (regionMatch?.[1] ?? 'homeport').trim().toLowerCase()
+
+          const coords = REGION_CENTROIDS[regionText] ?? REGION_CENTROIDS['homeport']
+          // Add slight randomization to prevent stacking
+          const lat = coords[0] + (Math.random() - 0.5) * 2
+          const lon = coords[1] + (Math.random() - 0.5) * 2
+
+          const hullMatch = carrierName.match(/\(([^)]+)\)/)
+          carriers.push({
+            name: carrierName.replace(/\s*\([^)]+\)/, '').trim(),
+            hull: hullMatch?.[1] ?? '',
+            region: regionMatch?.[1]?.trim() ?? 'Homeport',
+            lat, lon,
+            lastUpdate: Date.now(),
+          })
+        }
+        console.log(`[Fleet] Scraped ${carriers.length} carriers from USNI`)
+      }
+    } catch (err) {
+      console.warn(`[Fleet] USNI scrape failed: ${(err as Error).message}`)
+    }
+
+    fleetCache = { carriers, fetchedAt: Date.now() }
+    return Response.json({ carriers }, { headers: CORS })
+  } catch (err) {
+    console.warn(`[Fleet] Failed: ${(err as Error).message}`)
+    return Response.json({ carriers: [] }, { headers: CORS })
+  }
+}
+
+// ─── MARKETS (Defense Stocks & Commodities) ────────────────────────────────
+
+const MARKET_SYMBOLS = ['RTX', 'LMT', 'NOC', 'GD', 'BA', 'PLTR', 'CL=F', 'BZ=F']
+interface MarketCacheEntry { quotes: Array<{ symbol: string; data: unknown }>; fetchedAt: number }
+let marketCache: MarketCacheEntry | null = null
+const MARKET_TTL = 900_000 // 15 min
+
+async function handleMarketQuotes(): Promise<Response> {
+  const CORS = { 'Access-Control-Allow-Origin': '*' }
+  try {
+    if (marketCache && Date.now() - marketCache.fetchedAt < MARKET_TTL) {
+      return Response.json({ quotes: marketCache.quotes }, { headers: CORS })
+    }
+
+    const results = await Promise.allSettled(
+      MARKET_SYMBOLS.map(async (symbol) => {
+        const res = await fetch(
+          `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`,
+          {
+            signal: AbortSignal.timeout(10_000),
+            headers: { 'User-Agent': 'EagleEye/1.0' },
+          },
+        )
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.json()
+        return { symbol, data }
+      })
+    )
+
+    const quotes: Array<{ symbol: string; data: unknown }> = []
+    for (const result of results) {
+      if (result.status === 'fulfilled') quotes.push(result.value)
+    }
+
+    marketCache = { quotes, fetchedAt: Date.now() }
+    console.log(`[Markets] Fetched ${quotes.length}/${MARKET_SYMBOLS.length} symbols`)
+    return Response.json({ quotes }, { headers: CORS })
+  } catch (err) {
+    console.warn(`[Markets] Fetch failed: ${(err as Error).message}`)
+    return Response.json({ quotes: [] }, { headers: CORS })
+  }
+}
+
+// ─── SPACE WEATHER ──────────────────────────────────────────────────────────
+
+interface SpaceWeatherCacheEntry { kpIndex: unknown; alerts: unknown; fetchedAt: number }
+let spaceWeatherCache: SpaceWeatherCacheEntry | null = null
+const SPACE_WEATHER_TTL = 900_000 // 15 min
+
+async function handleSpaceWeather(): Promise<Response> {
+  const CORS = { 'Access-Control-Allow-Origin': '*' }
+  try {
+    if (spaceWeatherCache && Date.now() - spaceWeatherCache.fetchedAt < SPACE_WEATHER_TTL) {
+      return Response.json({ kpIndex: spaceWeatherCache.kpIndex, alerts: spaceWeatherCache.alerts }, { headers: CORS })
+    }
+
+    const [kpRes, alertsRes] = await Promise.allSettled([
+      fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json', { signal: AbortSignal.timeout(10_000) })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() }),
+      fetch('https://services.swpc.noaa.gov/products/alerts.json', { signal: AbortSignal.timeout(10_000) })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() }),
+    ])
+
+    const kpIndex = kpRes.status === 'fulfilled' ? kpRes.value : []
+    const alerts = alertsRes.status === 'fulfilled' ? alertsRes.value : []
+    spaceWeatherCache = { kpIndex, alerts, fetchedAt: Date.now() }
+    console.log('[SpaceWeather] Fetched Kp index + alerts')
+    return Response.json({ kpIndex, alerts }, { headers: CORS })
+  } catch (err) {
+    console.warn(`[SpaceWeather] Fetch failed: ${(err as Error).message}`)
+    return Response.json({ kpIndex: [], alerts: [] }, { headers: CORS })
+  }
+}
+
+// ─── INFRASTRUCTURE DATA ──────────────────────────────────────────────────
+
+interface InfraCacheEntry { data: unknown; fetchedAt: number }
+let datacenterCache: InfraCacheEntry | null = null
+let frontlinesCache: InfraCacheEntry | null = null
+let surveillanceCache: InfraCacheEntry | null = null
+
+const INFRA_TTL_24H = 86_400_000
+const INFRA_TTL_1H = 3_600_000
+
+async function handleInfraDatacenters(): Promise<Response> {
+  const CORS = { 'Access-Control-Allow-Origin': '*' }
+  try {
+    if (datacenterCache && Date.now() - datacenterCache.fetchedAt < INFRA_TTL_24H) {
+      return Response.json(datacenterCache.data, { headers: CORS })
+    }
+    // Fetch datacenter locations from public dataset
+    const res = await fetch('https://raw.githubusercontent.com/telegeography/www.datacentermap.com/master/src/data/facilities.json', {
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const facilities = await res.json() as Array<{ name?: string; city?: string; country?: string; latitude?: number; longitude?: number }>
+    const features = facilities
+      .filter((f: any) => f.latitude != null && f.longitude != null)
+      .map((f: any) => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [f.longitude, f.latitude] },
+        properties: { name: f.name ?? 'Datacenter', city: f.city ?? '', country: f.country ?? '' },
+      }))
+    const geojson = { type: 'FeatureCollection', features }
+    datacenterCache = { data: geojson, fetchedAt: Date.now() }
+    console.log(`[Infrastructure] Datacenters: ${features.length} facilities`)
+    return Response.json(geojson, { headers: CORS })
+  } catch (err) {
+    console.warn(`[Infrastructure] Datacenters failed: ${(err as Error).message}`)
+    return Response.json({ type: 'FeatureCollection', features: [] }, { headers: CORS })
+  }
+}
+
+async function handleInfraFrontlines(): Promise<Response> {
+  const CORS = { 'Access-Control-Allow-Origin': '*' }
+  try {
+    if (frontlinesCache && Date.now() - frontlinesCache.fetchedAt < INFRA_TTL_1H) {
+      return Response.json(frontlinesCache.data, { headers: CORS })
+    }
+    // Get directory listing from DeepStateMap GitHub repo
+    const dirRes = await fetch('https://api.github.com/repos/cyterat/deepstate-map-data/contents/geojson', {
+      signal: AbortSignal.timeout(15_000),
+      headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'EagleEye/1.0' },
+    })
+    if (!dirRes.ok) throw new Error(`GitHub API HTTP ${dirRes.status}`)
+    const files = await dirRes.json() as Array<{ name: string; download_url: string }>
+    // Find the latest GeoJSON file (sorted alphabetically, newest date last)
+    const geojsonFiles = files.filter(f => f.name.endsWith('.geojson')).sort((a, b) => b.name.localeCompare(a.name))
+    if (geojsonFiles.length === 0) throw new Error('No GeoJSON files found')
+
+    const latestUrl = geojsonFiles[0].download_url
+    const geoRes = await fetch(latestUrl, { signal: AbortSignal.timeout(30_000) })
+    if (!geoRes.ok) throw new Error(`GeoJSON fetch HTTP ${geoRes.status}`)
+    const geojson = await geoRes.json()
+    frontlinesCache = { data: geojson, fetchedAt: Date.now() }
+    console.log(`[Infrastructure] Frontlines: loaded ${geojsonFiles[0].name}`)
+    return Response.json(geojson, { headers: CORS })
+  } catch (err) {
+    console.warn(`[Infrastructure] Frontlines failed: ${(err as Error).message}`)
+    return Response.json({ type: 'FeatureCollection', features: [] }, { headers: CORS })
+  }
+}
+
+const SURVEILLANCE_CITIES = [
+  { name: 'London', bbox: '-0.5,51.3,0.3,51.7' },
+  { name: 'NYC', bbox: '-74.1,40.6,-73.8,40.9' },
+  { name: 'Tokyo', bbox: '139.5,35.5,139.9,35.8' },
+  { name: 'Paris', bbox: '2.2,48.8,2.5,48.9' },
+  { name: 'Berlin', bbox: '13.2,52.4,13.6,52.6' },
+  { name: 'Sydney', bbox: '151.0,-34.0,151.4,-33.7' },
+]
+
+async function handleInfraSurveillance(): Promise<Response> {
+  const CORS = { 'Access-Control-Allow-Origin': '*' }
+  try {
+    if (surveillanceCache && Date.now() - surveillanceCache.fetchedAt < INFRA_TTL_24H) {
+      return Response.json(surveillanceCache.data, { headers: CORS })
+    }
+
+    const features: Array<{ type: string; geometry: { type: string; coordinates: number[] }; properties: { city: string } }> = []
+    for (const city of SURVEILLANCE_CITIES) {
+      try {
+        const [west, south, east, north] = city.bbox.split(',')
+        const query = `[out:json][timeout:10];node["man_made"="surveillance"](${south},${west},${north},${east});out body 200;`
+        const res = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: `data=${encodeURIComponent(query)}`,
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          signal: AbortSignal.timeout(15_000),
+        })
+        if (!res.ok) continue
+        const json = await res.json() as { elements?: Array<{ lat: number; lon: number }> }
+        for (const el of json.elements ?? []) {
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [el.lon, el.lat] },
+            properties: { city: city.name },
+          })
+        }
+      } catch { /* skip city */ }
+    }
+
+    const geojson = { type: 'FeatureCollection', features }
+    surveillanceCache = { data: geojson, fetchedAt: Date.now() }
+    console.log(`[Infrastructure] Surveillance: ${features.length} cameras from ${SURVEILLANCE_CITIES.length} cities`)
+    return Response.json(geojson, { headers: CORS })
+  } catch (err) {
+    console.warn(`[Infrastructure] Surveillance failed: ${(err as Error).message}`)
+    return Response.json({ type: 'FeatureCollection', features: [] }, { headers: CORS })
+  }
+}
+
 // ─── UNIFIED SERVER ─────────────────────────────────────────────────────────
 
 Bun.serve<{ path: string }>({
@@ -1679,6 +2194,14 @@ Bun.serve<{ path: string }>({
     if (url.pathname === '/api/economic/indicators') return handleEconomicIndicators()
     if (url.pathname === '/api/hexdb/lookup') return handleHexdbLookup(url)
     if (url.pathname === '/api/hexdb/image') return handleHexdbImage(url)
+    if (url.pathname === '/api/imagery/search') return handleImagerySearch(url)
+    if (url.pathname === '/api/radio/feeds') return handleRadioFeeds()
+    if (url.pathname === '/api/fleet/carriers') return handleFleetTracker()
+    if (url.pathname === '/api/markets/quotes') return handleMarketQuotes()
+    if (url.pathname === '/api/space-weather') return handleSpaceWeather()
+    if (url.pathname === '/api/infrastructure/datacenters') return handleInfraDatacenters()
+    if (url.pathname === '/api/infrastructure/frontlines') return handleInfraFrontlines()
+    if (url.pathname === '/api/infrastructure/surveillance') return handleInfraSurveillance()
 
     // Legacy compatibility routes (single-port clients)
     if (url.pathname === '/lookup') return handleHexdbLookup(url)

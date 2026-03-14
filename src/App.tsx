@@ -11,6 +11,10 @@ import { usePortInit } from '@/hooks/usePortInit'
 import { useRFInit } from '@/hooks/useRFInit'
 import { useEconomicInit } from '@/hooks/useEconomicInit'
 import { useCameraInit } from '@/hooks/useCameraInit'
+import { useRadarInit } from '@/hooks/useRadarInit'
+import { useSpaceWeatherInit } from '@/hooks/useSpaceWeatherInit'
+import { useMarketInit } from '@/hooks/useMarketInit'
+import { useRadioInit } from '@/hooks/useRadioInit'
 import { useAlertEngine } from '@/hooks/useAlertEngine'
 import { useDarkVesselDetection } from '@/hooks/useDarkVesselDetection'
 import { usePersistence } from '@/hooks/usePersistence'
@@ -38,6 +42,10 @@ export default function App() {
   useRFInit()
   useEconomicInit()
   useCameraInit()
+  useRadarInit()
+  useSpaceWeatherInit()
+  useMarketInit()
+  useRadioInit()
   useAlertEngine()
   useDarkVesselDetection()
   usePersistence()

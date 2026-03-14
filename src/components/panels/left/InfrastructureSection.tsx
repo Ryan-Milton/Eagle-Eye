@@ -12,6 +12,9 @@ const LAYER_ICONS: Record<InfrastructureLayerType, string> = {
   pipelines: '═',
   nuclear: '☢',
   chokepoints: '◇',
+  datacenters: '⬡',
+  frontlines: '⚔',
+  surveillance: '⊙',
 }
 
 export function InfrastructureSection({ expanded, onToggle }: { expanded: boolean; onToggle: () => void }) {

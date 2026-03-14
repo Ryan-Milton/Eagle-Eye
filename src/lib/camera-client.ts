@@ -47,6 +47,41 @@ export function parseWindyCameras(json: unknown): Camera[] {
 }
 
 /**
+ * Parse Transport for London JamCam API response.
+ */
+export function parseTfLCameras(json: unknown): Camera[] {
+  const data = json as Array<{
+    id?: string
+    commonName?: string
+    lat?: number
+    lon?: number
+    additionalProperties?: Array<{
+      key?: string
+      value?: string
+    }>
+  }>
+
+  if (!Array.isArray(data)) return []
+
+  return data
+    .filter(c => c.lat != null && c.lon != null)
+    .map(c => {
+      const imageUrl = c.additionalProperties?.find(p => p.key === 'imageUrl')?.value ?? ''
+      return {
+        id: `tfl-${c.id ?? `${c.lat}-${c.lon}`}`,
+        title: c.commonName ?? 'TfL Camera',
+        lat: c.lat ?? 0,
+        lon: c.lon ?? 0,
+        thumbnail: imageUrl,
+        playerUrl: null,
+        city: 'London',
+        country: 'United Kingdom',
+        lastUpdate: Date.now(),
+      }
+    })
+}
+
+/**
  * Parse a generic camera list (fallback format).
  */
 export function parseCameraList(json: unknown): Camera[] {

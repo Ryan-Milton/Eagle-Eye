@@ -81,7 +81,7 @@ export function TopBar() {
   // const econLastFetch = useEconomicStore(s => s.lastFetch)
   const camCount = useCameraStore(s => s.count)
   const camLastFetch = useCameraStore(s => s.lastFetch)
-  const unackAlerts = useAlertStore(s => s.unacknowledgedCount)
+  const unackAlerts = useAlertStore(s => s.alerts.filter(a => a.domain !== 'cyber' && !a.acknowledged).length)
   const watchlistSize = useWatchlistStore(s => s.watchlist.size)
 
   const stats = getStats()

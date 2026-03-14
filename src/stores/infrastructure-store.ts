@@ -1,21 +1,27 @@
 import { create } from 'zustand'
 
-export type InfrastructureLayerType = 'cables' | 'pipelines' | 'nuclear' | 'chokepoints'
+export type InfrastructureLayerType = 'cables' | 'pipelines' | 'nuclear' | 'chokepoints' | 'datacenters' | 'frontlines' | 'surveillance'
 
-export const INFRASTRUCTURE_LAYERS: InfrastructureLayerType[] = ['cables', 'pipelines', 'nuclear', 'chokepoints']
+export const INFRASTRUCTURE_LAYERS: InfrastructureLayerType[] = ['cables', 'pipelines', 'nuclear', 'chokepoints', 'datacenters', 'frontlines', 'surveillance']
 
 export const INFRASTRUCTURE_LABELS: Record<InfrastructureLayerType, string> = {
   cables: 'Undersea Cables',
   pipelines: 'Pipelines',
   nuclear: 'Nuclear Facilities',
   chokepoints: 'Chokepoints',
+  datacenters: 'Datacenters',
+  frontlines: 'Conflict Frontlines',
+  surveillance: 'Surveillance Cameras',
 }
 
 export const INFRASTRUCTURE_COLORS: Record<InfrastructureLayerType, string> = {
-  cables: '#06b6d4',     // cyan
-  pipelines: '#f59e0b',  // amber
-  nuclear: '#ef4444',    // red
-  chokepoints: '#a78bfa', // violet
+  cables: '#06b6d4',       // cyan
+  pipelines: '#f59e0b',    // amber
+  nuclear: '#ef4444',      // red
+  chokepoints: '#a78bfa',  // violet
+  datacenters: '#38bdf8',  // sky
+  frontlines: '#f97316',   // orange
+  surveillance: '#a3a3a3', // neutral
 }
 
 const STORAGE_KEY = 'eagle-eye-infrastructure-toggles'

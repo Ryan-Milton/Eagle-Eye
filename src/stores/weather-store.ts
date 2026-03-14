@@ -10,11 +10,11 @@ function loadToggles(): Map<WeatherEventType, boolean> {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored) {
       const obj = JSON.parse(stored) as Record<string, boolean>
-      for (const t of WEATHER_EVENT_TYPES) map.set(t, obj[t] ?? true)
+      for (const t of WEATHER_EVENT_TYPES) map.set(t, obj[t] ?? false)
       return map
     }
   } catch { /* ignore */ }
-  for (const t of WEATHER_EVENT_TYPES) map.set(t, true)
+  for (const t of WEATHER_EVENT_TYPES) map.set(t, false)
   return map
 }
 
@@ -32,6 +32,12 @@ interface WeatherState {
   errors: string[]
   typeToggles: Map<WeatherEventType, boolean>
 
+  // Radar overlay
+  radarEnabled: boolean
+  radarTilePath: string | null
+  toggleRadar: () => void
+  setRadarTilePath: (path: string | null) => void
+
   toggleType: (type: WeatherEventType) => void
   enableAllTypes: () => void
   disableAllTypes: () => void
@@ -44,6 +50,11 @@ export const useWeatherStore = create<WeatherState>()((set, get) => ({
   lastFetch: null,
   errors: [],
   typeToggles: loadToggles(),
+
+  radarEnabled: false,
+  radarTilePath: null,
+  toggleRadar: () => set(s => ({ radarEnabled: !s.radarEnabled })),
+  setRadarTilePath: (path) => set({ radarTilePath: path }),
 
   toggleType: (type) => {
     const next = new Map(get().typeToggles)
