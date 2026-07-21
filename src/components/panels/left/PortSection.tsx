@@ -2,9 +2,9 @@ import { useState, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { usePortStore } from '@/stores/port-store'
 import type { Port } from '@/lib/ports-client'
+import { TypeToggle } from './shared'
 
 const SIZE_LABELS: Record<string, string> = { large: 'Large', medium: 'Medium', small: 'Small' }
-const SIZE_DOT_COLORS: Record<string, string> = { large: '#60a5fa', medium: '#38bdf8', small: '#94a3b8' }
 
 export function PortSection({ expanded, onToggle }: { expanded: boolean; onToggle: () => void }) {
   const { ports, version, count, visible, setVisible } = usePortStore()
@@ -38,55 +38,49 @@ export function PortSection({ expanded, onToggle }: { expanded: boolean; onToggl
         tabIndex={0}
         onClick={onToggle}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
-        className="w-full flex items-center gap-2 px-3.5 py-2.5 border-b border-zinc-800 hover:bg-zinc-800/30 transition-colors cursor-pointer"
+        aria-expanded={expanded}
+        className="flex min-h-10 w-full items-center gap-2 border-b border-line-muted px-3.5 transition-colors hover:bg-panel-raised"
       >
-        <span className="text-[11px] text-zinc-600">{expanded ? '▾' : '▸'}</span>
-        <span className="font-display text-[12px] font-semibold tracking-[2px] text-blue-400 uppercase flex-1 text-left">Ports</span>
-        <span className={cn('inline-block w-1.5 h-1.5 rounded-full mr-1', hasData ? 'bg-blue-400' : 'bg-zinc-600')} />
-        <span className="font-mono text-[11px] text-zinc-500">{count}</span>
-        <button
-          onClick={(e) => { e.stopPropagation(); setVisible(!visible) }}
-          className={cn('w-4 h-4 rounded border flex items-center justify-center text-[10px]',
-            visible ? 'border-blue-500 bg-blue-500/20 text-blue-400' : 'border-zinc-600 text-zinc-600'
-          )}
-        >
-          {visible ? '✓' : ''}
-        </button>
+        <span className="text-[11px] text-muted-foreground" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+        <span className="neo-kicker flex-1 text-left text-domain-port">Ports</span>
+        <span className={cn('neo-data text-[9px] uppercase', hasData ? 'text-success' : 'text-muted-foreground')}>{hasData ? 'Ready' : 'Idle'}</span>
+        <span className="neo-data text-[11px] text-muted-foreground">{count}</span>
+        <TypeToggle on={visible} color="var(--domain-port)" label="ports" onClick={() => setVisible(!visible)} />
       </div>
 
       {expanded && (
-        <div className="border-b border-zinc-800">
+        <div className="border-b border-line-muted bg-background">
           {['large', 'medium', 'small'].map(size => {
             const sizePorts = portsBySize.get(size) ?? []
             const isExpanded = expandedSizes.has(size)
-            const dotColor = SIZE_DOT_COLORS[size] ?? '#94a3b8'
+            const dotColor = 'var(--domain-port)'
 
             return (
               <div key={size}>
-                <div className="flex items-center border-b border-zinc-800/40">
+                <div className="flex items-center border-b border-line-muted">
                   <button
                     onClick={() => sizePorts.length > 0 && toggleSizeExpand(size)}
-                    className="flex-1 flex items-center gap-2 pl-4 pr-1 py-1.5 text-left hover:bg-zinc-800/30 transition-colors"
+                    className="flex min-h-9 flex-1 items-center gap-2 py-1 pl-4 pr-1 text-left transition-colors hover:bg-panel-raised"
                   >
-                    <span className="inline-block w-[6px] h-[6px] rounded-full flex-shrink-0" style={{ backgroundColor: dotColor }} />
-                    <span className="font-display text-[12px] font-medium tracking-wide flex-1 text-zinc-300">
+                    <span className="inline-block size-2 flex-shrink-0 border border-domain-port" style={{ backgroundColor: dotColor }} />
+                    <span className="flex-1 font-mono text-xs text-foreground">
                       {SIZE_LABELS[size]}
                     </span>
-                    <span className="font-mono text-[11px] text-zinc-600">{sizePorts.length}</span>
-                    {sizePorts.length > 0 && <span className="text-[11px] text-zinc-600">{isExpanded ? '▾' : '▸'}</span>}
+                    <span className="neo-data text-[11px] text-muted-foreground">{sizePorts.length}</span>
+                    {sizePorts.length > 0 && <span className="text-[11px] text-muted-foreground">{isExpanded ? '▾' : '▸'}</span>}
                   </button>
                 </div>
 
                 {isExpanded && sizePorts.length > 0 && (
-                  <div className="max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
+                  <div className="neo-scrollbar max-h-[200px] overflow-y-auto">
                     {sizePorts.slice(0, 200).map(port => (
                       <div
                         key={port.id}
-                        className="w-full flex items-center gap-2 pl-7 pr-3 py-1 text-left border-b border-zinc-800/20"
+                        className="flex min-h-9 w-full items-center gap-2 border-b border-line-muted py-1 pl-7 pr-3 text-left"
                       >
                         <div className="flex-1 min-w-0">
-                          <div className="font-mono text-[11px] text-zinc-400 truncate">{port.name}</div>
-                          <div className="font-mono text-[10px] text-zinc-600">{port.country} · {port.harborType}</div>
+                          <div className="truncate font-mono text-[11px] text-foreground">{port.name}</div>
+                          <div className="font-mono text-[10px] text-muted-foreground">{port.country} · {port.harborType}</div>
                         </div>
                       </div>
                     ))}

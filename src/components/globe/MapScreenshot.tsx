@@ -26,8 +26,11 @@ export function MapScreenshot({ map }: MapScreenshotProps) {
       <Tooltip>
         <TooltipTrigger asChild>
           <button
+            type="button"
             onClick={handleScreenshot}
-            className="px-3 py-1.5 text-xs font-mono uppercase tracking-wider rounded-md border bg-zinc-900/90 text-zinc-400 border-zinc-700 hover:text-zinc-200 backdrop-blur-sm transition-colors"
+            disabled={!map}
+            aria-label="Save map screenshot as a PNG"
+            className="min-h-9 border border-line bg-panel px-3 font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground transition-colors hover:bg-panel-raised hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
           >
             Screenshot
           </button>

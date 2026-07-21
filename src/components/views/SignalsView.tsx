@@ -22,13 +22,17 @@ import {
   CHART_TOOLTIP_STYLE,
   CHART_AXIS_STYLE,
   CHART_GRID_STYLE,
+  CHART_BAR_STYLE,
   activeBarGrow,
 } from '@/lib/chart-theme'
+import { Button } from '@/components/ui/button'
+import { Stat } from '@/components/ui/stat'
+import { AnalysisChartRegion, AnalysisHeader, AnalysisPanel, AnalysisSectionTitle } from './shared/AnalysisPrimitives'
 
 const SEVERITY_COLORS: Record<string, string> = {
-  info: '#60a5fa',
-  warning: '#eab308',
-  critical: '#ef4444',
+  info: 'var(--info)',
+  warning: 'var(--warning)',
+  critical: 'var(--danger)',
 }
 
 export function SignalsView() {
@@ -214,95 +218,81 @@ export function SignalsView() {
     cameraCount, cameraLastFetch,
   ])
 
-  const statusDotColor = { green: 'bg-green-400', amber: 'bg-amber-400', red: 'bg-red-500' }
+  const statusDotColor = { green: 'bg-success', amber: 'bg-warning', red: 'bg-danger' }
 
   return (
-    <div className="fixed top-[46px] left-64 right-[272px] bottom-[34px] bg-zinc-950 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700 p-4">
-      <div className="font-display text-[12px] font-semibold tracking-[3px] text-zinc-600 uppercase mb-4">
-        Signals Dashboard
-      </div>
+    <div className="neo-scrollbar h-full min-h-0 overflow-y-auto bg-background text-foreground">
+      <AnalysisHeader eyebrow="Analysis / Signals" title="Signals Dashboard" detail={`${activeSources} active intelligence sources`} />
+      <div className="p-3 sm:p-4">
 
       {/* Row 1: KPI Cards */}
-      <div className="grid grid-cols-4 gap-3 mb-4">
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-          <div className="font-mono text-[11px] text-zinc-500 uppercase tracking-wider mb-1">Total Entities</div>
-          <div className="font-mono text-2xl font-bold text-orange-400">{totalEntities.toLocaleString()}</div>
-        </div>
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-          <div className="font-mono text-[11px] text-zinc-500 uppercase tracking-wider mb-1">Active Sources</div>
-          <div className="font-mono text-2xl font-bold text-green-400">{activeSources}/11</div>
-        </div>
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-          <div className="font-mono text-[11px] text-zinc-500 uppercase tracking-wider mb-1">Alerts</div>
-          <div className="font-mono text-2xl font-bold text-yellow-400">{alerts.length}</div>
-        </div>
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-          <div className="font-mono text-[11px] text-zinc-500 uppercase tracking-wider mb-1">Unacknowledged</div>
-          <div className="flex items-center gap-3">
-            <div className={`font-mono text-2xl font-bold ${unackCount > 0 ? 'text-red-400' : 'text-zinc-400'}`}>
-              {unackCount}
-            </div>
+      <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <AnalysisPanel className="p-4"><Stat label="Total Entities" value={totalEntities.toLocaleString()} /></AnalysisPanel>
+        <AnalysisPanel className="p-4"><Stat label="Active Sources" value={`${activeSources}/11`} detail="Domain feeds reporting" /></AnalysisPanel>
+        <AnalysisPanel className="p-4"><Stat label="Alerts" value={alerts.length} detail="Current alert ledger" /></AnalysisPanel>
+        <AnalysisPanel className="flex items-center justify-between gap-3 p-4">
+          <Stat label="Unacknowledged" value={<span className={unackCount > 0 ? 'text-danger' : 'text-muted-foreground'}>{unackCount}</span>} signal={unackCount > 0} />
             {unackCount > 0 && (
-              <button
+              <Button
+                type="button"
                 onClick={acknowledgeAll}
-                className="font-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-colors"
+                variant="danger"
+                size="sm"
               >
                 ACK ALL
-              </button>
+              </Button>
             )}
-          </div>
-        </div>
+        </AnalysisPanel>
       </div>
 
       {/* Row 2: Domain Activity Bar Chart */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-4">
-        <div className="font-display text-[12px] font-semibold tracking-[2px] text-zinc-500 uppercase mb-3">
-          Entities by Domain
-        </div>
-        <ResponsiveContainer width="100%" height={220}>
+      <AnalysisPanel className="mb-4">
+        <AnalysisSectionTitle className="m-4">Entities by Domain</AnalysisSectionTitle>
+        <AnalysisChartRegion className="overflow-x-auto">
+          <div className="h-[220px] min-w-[680px]">
+            <ResponsiveContainer width="100%" height="100%">
           <BarChart data={domainBarData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
             <CartesianGrid {...CHART_GRID_STYLE} />
             <XAxis dataKey="label" {...CHART_AXIS_STYLE} />
             <YAxis {...CHART_AXIS_STYLE} />
             <Tooltip {...CHART_TOOLTIP_STYLE} />
-            <Bar dataKey="count" radius={[3, 3, 0, 0]} activeBar={activeBarGrow}>
+            <Bar dataKey="count" {...CHART_BAR_STYLE} activeBar={activeBarGrow}>
               {domainBarData.map((entry) => (
                 <Cell key={entry.domain} fill={entry.fill} />
               ))}
             </Bar>
           </BarChart>
-        </ResponsiveContainer>
-      </div>
+            </ResponsiveContainer>
+          </div>
+        </AnalysisChartRegion>
+      </AnalysisPanel>
 
       {/* Row 3: Alert Analysis */}
-      <div className="font-display text-[12px] font-semibold tracking-[3px] text-zinc-600 uppercase mb-4">
-        Alert Analysis
-      </div>
-      <div className="grid grid-cols-2 gap-3 mb-4">
+      <AnalysisSectionTitle className="mb-3">Alert Analysis</AnalysisSectionTitle>
+      <div className="mb-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
         {/* Alert Timeline */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-          <div className="font-display text-[12px] font-semibold tracking-[2px] text-zinc-500 uppercase mb-3">
-            Alert Timeline (Last Hour)
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
+        <AnalysisPanel>
+          <AnalysisSectionTitle className="m-4">Alert Timeline (Last Hour)</AnalysisSectionTitle>
+          <AnalysisChartRegion className="h-[230px]">
+            <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={alertTimelineData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
               <CartesianGrid {...CHART_GRID_STYLE} />
               <XAxis dataKey="time" {...CHART_AXIS_STYLE} />
               <YAxis {...CHART_AXIS_STYLE} allowDecimals={false} />
               <Tooltip {...CHART_TOOLTIP_STYLE} />
-              <Area type="monotone" dataKey="critical" stackId="1" stroke="#ef4444" fill="#ef4444" fillOpacity={0.4} />
-              <Area type="monotone" dataKey="warning" stackId="1" stroke="#eab308" fill="#eab308" fillOpacity={0.4} />
-              <Area type="monotone" dataKey="info" stackId="1" stroke="#60a5fa" fill="#60a5fa" fillOpacity={0.4} />
+              <Area type="monotone" dataKey="critical" stackId="1" stroke="var(--danger)" fill="var(--danger)" fillOpacity={0.24} />
+              <Area type="monotone" dataKey="warning" stackId="1" stroke="var(--warning)" fill="var(--warning)" fillOpacity={0.2} />
+              <Area type="monotone" dataKey="info" stackId="1" stroke="var(--info)" fill="var(--info)" fillOpacity={0.18} />
             </AreaChart>
-          </ResponsiveContainer>
-        </div>
+            </ResponsiveContainer>
+          </AnalysisChartRegion>
+        </AnalysisPanel>
 
         {/* Alert Severity Breakdown */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-          <div className="font-display text-[12px] font-semibold tracking-[2px] text-zinc-500 uppercase mb-3">
-            Alert Severity Breakdown
-          </div>
-          <ResponsiveContainer width="100%" height={160}>
+        <AnalysisPanel>
+          <AnalysisSectionTitle className="m-4">Alert Severity Breakdown</AnalysisSectionTitle>
+          <AnalysisChartRegion className="h-[190px]">
+            <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
                 data={alertSeverityData}
@@ -319,80 +309,77 @@ export function SignalsView() {
               </Pie>
               <Tooltip {...CHART_TOOLTIP_STYLE} />
             </PieChart>
-          </ResponsiveContainer>
-          <div className="flex justify-center gap-4 mt-2">
+            </ResponsiveContainer>
+          </AnalysisChartRegion>
+          <div className="flex flex-wrap justify-center gap-4 border-t border-line-muted p-3">
             {alertSeverityData.map(d => (
               <div key={d.name} className="flex items-center gap-1.5">
-                <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.fill }} />
-                <span className="font-mono text-[11px] text-zinc-400">{d.name}</span>
-                <span className="font-mono text-[11px] text-zinc-200 font-bold">{d.value}</span>
+                <span className="inline-block size-2.5 border border-line" style={{ backgroundColor: d.fill }} />
+                <span className="neo-kicker text-muted-foreground">{d.name}</span>
+                <span className="neo-data text-xs text-foreground">{d.value}</span>
               </div>
             ))}
           </div>
-        </div>
+        </AnalysisPanel>
       </div>
 
       {/* Row 4: Threat Breakdown */}
-      <div className="font-display text-[12px] font-semibold tracking-[3px] text-zinc-600 uppercase mb-4">
-        Threat Breakdown
-      </div>
-      <div className="grid grid-cols-2 gap-3 mb-4">
+      <AnalysisSectionTitle className="mb-3">Threat Breakdown</AnalysisSectionTitle>
+      <div className="mb-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
         {/* Cyber Threats by Type */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-          <div className="font-display text-[12px] font-semibold tracking-[2px] text-zinc-500 uppercase mb-3">
-            Cyber Threats by Type
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
+        <AnalysisPanel>
+          <AnalysisSectionTitle className="m-4">Cyber Threats by Type</AnalysisSectionTitle>
+          <AnalysisChartRegion className="h-[230px] overflow-x-auto">
+            <div className="h-full min-w-[420px]"><ResponsiveContainer width="100%" height="100%">
             <BarChart data={cyberByType} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
               <CartesianGrid {...CHART_GRID_STYLE} />
               <XAxis dataKey="type" {...CHART_AXIS_STYLE} />
               <YAxis {...CHART_AXIS_STYLE} allowDecimals={false} />
               <Tooltip {...CHART_TOOLTIP_STYLE} />
-              <Bar dataKey="count" fill="#c084fc" radius={[3, 3, 0, 0]} activeBar={activeBarGrow} />
+              <Bar dataKey="count" fill={DOMAIN_HEX_COLORS.cyber} {...CHART_BAR_STYLE} activeBar={activeBarGrow} />
             </BarChart>
-          </ResponsiveContainer>
-        </div>
+            </ResponsiveContainer></div>
+          </AnalysisChartRegion>
+        </AnalysisPanel>
 
         {/* Conflict Events by Type */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-          <div className="font-display text-[12px] font-semibold tracking-[2px] text-zinc-500 uppercase mb-3">
-            Conflict Events by Type
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
+        <AnalysisPanel>
+          <AnalysisSectionTitle className="m-4">Conflict Events by Type</AnalysisSectionTitle>
+          <AnalysisChartRegion className="h-[230px] overflow-x-auto">
+            <div className="h-full min-w-[480px]"><ResponsiveContainer width="100%" height="100%">
             <BarChart data={conflictByType} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
               <CartesianGrid {...CHART_GRID_STYLE} />
               <XAxis dataKey="type" {...CHART_AXIS_STYLE} />
               <YAxis {...CHART_AXIS_STYLE} allowDecimals={false} />
               <Tooltip
                 {...CHART_TOOLTIP_STYLE}
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                formatter={((value: any, name: any) => {
+                formatter={(value, name) => {
                   if (name === 'count') return [value, 'Events']
                   if (name === 'fatalities') return [value, 'Fatalities']
                   return [value, name]
-                }) as any}
+                }}
               />
-              <Bar dataKey="count" fill="#f87171" radius={[3, 3, 0, 0]} activeBar={activeBarGrow} />
-              <Bar dataKey="fatalities" fill="#991b1b" radius={[3, 3, 0, 0]} activeBar={activeBarGrow} />
+              <Bar dataKey="count" fill={DOMAIN_HEX_COLORS.conflict} {...CHART_BAR_STYLE} activeBar={activeBarGrow} />
+              <Bar dataKey="fatalities" fill="var(--signal-red)" {...CHART_BAR_STYLE} activeBar={activeBarGrow} />
             </BarChart>
-          </ResponsiveContainer>
-        </div>
+            </ResponsiveContainer></div>
+          </AnalysisChartRegion>
+        </AnalysisPanel>
       </div>
 
       {/* Row 5: Feed Health */}
-      <div className="font-display text-[12px] font-semibold tracking-[3px] text-zinc-600 uppercase mb-4">
-        Feed Health
-      </div>
-      <div className="grid grid-cols-4 gap-3 mb-4">
+      <AnalysisSectionTitle className="mb-3">Feed Health</AnalysisSectionTitle>
+      <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
         {feedHealthSources.map((source) => (
-          <div key={source.key} className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex items-center gap-3">
-            <div className={`w-2.5 h-2.5 rounded-full ${statusDotColor[source.status]} shrink-0`} />
+          <AnalysisPanel key={source.key} className="flex items-center gap-3 p-3 sm:p-4">
+            <div className={`size-2.5 border border-current ${statusDotColor[source.status]} shrink-0`} />
             <div className="min-w-0 flex-1">
-              <div className="font-mono text-[11px] text-zinc-500 uppercase tracking-wider">{source.label}</div>
-              <div className="font-mono text-lg font-bold text-zinc-200">{source.count.toLocaleString()}</div>
+              <div className="neo-kicker text-muted-foreground">{source.label}</div>
+              <div className="neo-data text-lg text-foreground">{source.count.toLocaleString()}</div>
             </div>
-          </div>
+          </AnalysisPanel>
         ))}
+      </div>
       </div>
     </div>
   )

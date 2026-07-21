@@ -1,10 +1,13 @@
-import { useCallback, useRef, useEffect } from 'react'
+import { useCallback, useEffect, useRef, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { Pause, Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useClock } from '@/hooks/useClock'
+import { useNow } from '@/hooks/useNow'
 import { useAppStore } from '@/stores/app-store'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/Tooltip'
 
 const SIX_HOURS = 6 * 60 * 60 * 1000
+const KEYBOARD_STEP = 60 * 1000
 const SPEED_OPTIONS = [1, 2, 5, 10]
 
 export function BottomBar() {
@@ -19,9 +22,10 @@ export function BottomBar() {
   const setTimelinePlaying = useAppStore(s => s.setTimelinePlaying)
   const setTimelineSpeed = useAppStore(s => s.setTimelineSpeed)
   const { elapsed, nextUpdate } = useClock(sessionStart)
+  const now = useNow()
   const trackRef = useRef<HTMLDivElement>(null)
+  const removePointerListenersRef = useRef<(() => void) | null>(null)
 
-  // Keep cursor at "now" when live
   useEffect(() => {
     if (!timelineLive) return
     const id = setInterval(() => {
@@ -30,52 +34,100 @@ export function BottomBar() {
     return () => clearInterval(id)
   }, [timelineLive])
 
-  // Replay playback — advance cursor forward when playing
   useEffect(() => {
     if (!timelinePlaying || timelineLive) return
     const intervalMs = 100
     const id = setInterval(() => {
       const state = useAppStore.getState()
-      const advance = (intervalMs * state.timelineSpeed * 60) // speed multiplier scales minutes
-      const newCursor = state.timelineCursor + advance
+      const newCursor = state.timelineCursor + intervalMs * state.timelineSpeed * 60
       if (newCursor >= Date.now()) {
         setTimelineLive(true)
       } else {
         useAppStore.setState({ timelineCursor: newCursor })
       }
-    }, 100)
+    }, intervalMs)
     return () => clearInterval(id)
   }, [timelinePlaying, timelineLive, setTimelineLive])
 
-  const now = Date.now()
-  const range = now - timelineStart
+  useEffect(() => () => removePointerListenersRef.current?.(), [])
+
+  const range = Math.max(1, now - timelineStart)
   const progress = Math.min(1, Math.max(0, (timelineCursor - timelineStart) / range))
+
+  const setCursorWithinWindow = useCallback((cursor: number) => {
+    const currentTime = Date.now()
+    const start = currentTime - SIX_HOURS
+    const clampedCursor = Math.min(currentTime, Math.max(start, cursor))
+    if (currentTime - clampedCursor < 10_000) {
+      setTimelineLive(true)
+    } else {
+      setTimelineCursor(clampedCursor)
+    }
+  }, [setTimelineCursor, setTimelineLive])
 
   const handleScrub = useCallback((clientX: number) => {
     const track = trackRef.current
     if (!track) return
     const rect = track.getBoundingClientRect()
-    const pct = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
-    const now = Date.now()
-    const start = now - SIX_HOURS
-    const cursor = start + pct * SIX_HOURS
-    if (now - cursor < 10_000) {
-      setTimelineLive(true)
-    } else {
-      setTimelineCursor(cursor)
-    }
-  }, [setTimelineCursor, setTimelineLive])
+    const percent = Math.min(1, Math.max(0, (clientX - rect.left) / Math.max(1, rect.width)))
+    const currentTime = Date.now()
+    setCursorWithinWindow(currentTime - SIX_HOURS + percent * SIX_HOURS)
+  }, [setCursorWithinWindow])
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    handleScrub(e.clientX)
-    const onMove = (me: MouseEvent) => handleScrub(me.clientX)
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
+  const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    removePointerListenersRef.current?.()
+    handleScrub(event.clientX)
+
+    const track = event.currentTarget
+    const pointerId = event.pointerId
+    try {
+      track.setPointerCapture(pointerId)
+    } catch {
+      // Document listeners still keep the drag active when capture is unavailable.
     }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId === pointerId) handleScrub(moveEvent.clientX)
+    }
+    const removeListeners = () => {
+      document.removeEventListener('pointermove', onPointerMove, true)
+      document.removeEventListener('pointerup', onPointerEnd, true)
+      document.removeEventListener('pointercancel', onPointerEnd, true)
+      try {
+        if (track.hasPointerCapture(pointerId)) track.releasePointerCapture(pointerId)
+      } catch {
+        // Capture may already be released when the pointer leaves the document.
+      }
+      removePointerListenersRef.current = null
+    }
+    const onPointerEnd = (endEvent: PointerEvent) => {
+      if (endEvent.pointerId !== pointerId) return
+      if (endEvent.type === 'pointerup') handleScrub(endEvent.clientX)
+      removeListeners()
+    }
+
+    removePointerListenersRef.current = removeListeners
+    document.addEventListener('pointermove', onPointerMove, true)
+    document.addEventListener('pointerup', onPointerEnd, true)
+    document.addEventListener('pointercancel', onPointerEnd, true)
   }, [handleScrub])
+
+  const handleSliderKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+    let cursor: number | null = null
+    const currentTime = Date.now()
+    const currentCursor = timelineLive ? currentTime : timelineCursor
+
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') cursor = currentCursor - KEYBOARD_STEP
+    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') cursor = currentCursor + KEYBOARD_STEP
+    if (event.key === 'Home') cursor = currentTime - SIX_HOURS
+    if (event.key === 'End') cursor = currentTime
+    if (cursor === null) return
+
+    event.preventDefault()
+    setCursorWithinWindow(cursor)
+  }, [setCursorWithinWindow, timelineCursor, timelineLive])
 
   const cursorOffset = now - timelineCursor
   const cursorLabel = timelineLive
@@ -88,9 +140,7 @@ export function BottomBar() {
 
   const togglePlayPause = useCallback(() => {
     if (timelineLive) {
-      // Start replay from 6 hours ago
-      const start = Date.now() - SIX_HOURS
-      setTimelineCursor(start)
+      setTimelineCursor(Date.now() - SIX_HOURS)
       setTimelinePlaying(true)
     } else {
       setTimelinePlaying(!timelinePlaying)
@@ -98,40 +148,46 @@ export function BottomBar() {
   }, [timelineLive, timelinePlaying, setTimelineCursor, setTimelinePlaying])
 
   const cycleSpeed = useCallback(() => {
-    const idx = SPEED_OPTIONS.indexOf(timelineSpeed)
-    const next = SPEED_OPTIONS[(idx + 1) % SPEED_OPTIONS.length]
-    setTimelineSpeed(next)
+    const index = SPEED_OPTIONS.indexOf(timelineSpeed)
+    setTimelineSpeed(SPEED_OPTIONS[(index + 1) % SPEED_OPTIONS.length])
   }, [timelineSpeed, setTimelineSpeed])
 
-  return (
-    <footer className="fixed bottom-0 left-0 right-0 h-[34px] bg-zinc-900 border-t border-zinc-800 flex items-center pl-3.5 z-50">
+  const sliderValueText = timelineLive
+    ? 'Live, current time'
+    : `${cursorLabel}, ${new Date(timelineCursor).toISOString()}`
+  const ariaTimelineCursor = Math.min(now, Math.max(timelineStart, timelineCursor))
 
-      <div className="flex items-center gap-1.5 pr-3.5 border-r border-zinc-800 font-mono text-[12px] text-zinc-600 whitespace-nowrap h-full">
-        MODE <span className="text-zinc-400">{timelineLive ? 'REALTIME' : timelinePlaying ? 'REPLAY' : 'PAUSED'}</span>
+  return (
+    <footer className="relative z-40 col-span-full row-start-3 flex min-w-0 items-stretch border-t border-line bg-panel text-foreground">
+      <div className="hidden items-center gap-1.5 border-r border-line-muted px-3 font-mono text-[10px] text-muted-foreground sm:flex">
+        MODE <strong className="text-foreground">{timelineLive ? 'REALTIME' : timelinePlaying ? 'REPLAY' : 'PAUSED'}</strong>
       </div>
 
-      {/* Play/Pause + Speed */}
-      <div className="flex items-center h-full border-r border-zinc-800">
+      <div className="flex items-stretch border-r border-line-muted">
         <TooltipProvider delayDuration={200}>
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
                 onClick={togglePlayPause}
-                className="px-2.5 h-full font-mono text-[12px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                className="grid min-w-11 place-items-center text-muted-foreground transition-colors hover:bg-signal hover:text-signal-foreground focus-visible:outline-focus"
+                aria-label={timelinePlaying && !timelineLive ? 'Pause replay' : 'Start replay'}
               >
-                {timelinePlaying && !timelineLive ? '⏸' : '▶'}
+                {timelinePlaying && !timelineLive ? <Pause aria-hidden="true" className="size-3.5" /> : <Play aria-hidden="true" className="size-3.5" />}
               </button>
             </TooltipTrigger>
-            <TooltipContent side="top">{timelinePlaying ? 'Pause' : 'Play'}</TooltipContent>
+            <TooltipContent side="top">{timelinePlaying && !timelineLive ? 'Pause replay' : 'Start replay'}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
                 onClick={cycleSpeed}
                 className={cn(
-                  'px-2 h-full font-mono text-[11px] transition-colors',
-                  timelineSpeed > 1 ? 'text-orange-400' : 'text-zinc-600 hover:text-zinc-400',
+                  'min-w-11 border-l border-line-muted px-1 font-mono text-[10px] font-bold transition-colors hover:bg-panel-raised focus-visible:outline-focus',
+                  timelineSpeed > 1 ? 'text-signal' : 'text-muted-foreground',
                 )}
+                aria-label={`Playback speed ${timelineSpeed} times`}
               >
                 {timelineSpeed}x
               </button>
@@ -141,45 +197,45 @@ export function BottomBar() {
         </TooltipProvider>
       </div>
 
-      <div className="flex items-center gap-1.5 px-3.5 border-r border-zinc-800 font-mono text-[12px] text-zinc-600 whitespace-nowrap h-full">
-        T+ <span className="text-zinc-400">{elapsed}</span>
+      <div className="hidden items-center gap-1.5 border-r border-line-muted px-3 font-mono text-[10px] text-muted-foreground md:flex">
+        SESSION <span className="text-foreground">T+{elapsed}</span>
       </div>
 
-      {/* Timeline scrubber */}
-      <div className="flex-1 flex items-center gap-2.5 px-4 h-full">
-        <span className="font-mono text-[13px] text-zinc-600 whitespace-nowrap">T-6H</span>
+      <div className="flex min-w-0 flex-1 items-center gap-2 px-2 sm:px-3">
+        <span className="hidden whitespace-nowrap font-mono text-[9px] text-muted-foreground sm:block">T-6H</span>
         <div
           ref={trackRef}
-          className="flex-1 h-[3px] bg-zinc-800 rounded-sm relative cursor-pointer"
-          onMouseDown={handleMouseDown}
+          role="slider"
+          tabIndex={0}
+          aria-label="Six-hour operational timeline"
+          aria-valuemin={timelineStart}
+          aria-valuemax={now}
+          aria-valuenow={ariaTimelineCursor}
+          aria-valuetext={sliderValueText}
+          onPointerDown={handlePointerDown}
+          onKeyDown={handleSliderKeyDown}
+          className="relative h-3 flex-1 touch-none cursor-pointer border border-line-muted bg-panel-subtle outline-none focus-visible:ring-2 focus-visible:ring-focus"
         >
-          <div
-            className="h-full bg-gradient-to-r from-orange-800 to-orange-500 rounded-sm relative transition-[width] duration-100"
-            style={{ width: `${(progress * 100).toFixed(1)}%` }}
-          >
-            <div className="absolute right-[-1px] top-[-3px] w-[2px] h-[9px] bg-orange-400 rounded-sm shadow-[0_0_6px_rgba(249,115,22,0.6)]" />
-          </div>
+          <div className="h-full bg-signal transition-[width] duration-100" style={{ width: `${(progress * 100).toFixed(1)}%` }} />
+          <div className="absolute top-[-4px] h-[18px] w-1 -translate-x-1/2 border border-foreground bg-signal shadow-hard" style={{ left: `${(progress * 100).toFixed(1)}%` }} />
         </div>
-        <span className="font-mono text-[13px] text-zinc-600 whitespace-nowrap">NOW</span>
+        <span className="hidden whitespace-nowrap font-mono text-[9px] text-muted-foreground sm:block">NOW</span>
       </div>
 
-      <div className="flex items-center gap-1.5 px-3.5 border-l border-zinc-800 font-mono text-[12px] text-zinc-600 whitespace-nowrap h-full">
+      <div className={cn('items-center border-l border-line-muted px-2 font-mono text-[10px] text-muted-foreground lg:px-3', timelineLive ? 'hidden lg:flex' : 'flex')}>
         {timelineLive ? (
-          <>UPDATE <span className="text-zinc-400">T-{nextUpdate}s</span></>
+          <>UPDATE <span className="ml-1 text-foreground">T-{nextUpdate}s</span></>
         ) : (
-          <button
-            onClick={() => setTimelineLive(true)}
-            className="text-orange-400 hover:text-orange-300 uppercase tracking-wider"
-          >
-            {cursorLabel} → LIVE
+          <button type="button" onClick={() => setTimelineLive(true)} className="font-bold uppercase tracking-wider text-signal hover:text-signal-soft">
+            {cursorLabel} / Live
           </button>
         )}
       </div>
-      <div className="px-4 border-l border-zinc-800 font-display text-[13px] font-semibold tracking-[2px] text-zinc-50 h-full flex items-center">
-        OP NIGHTFALL
+      <div className="hidden items-center border-l border-line-muted px-3 font-mono text-[10px] font-bold uppercase tracking-wider xl:flex">
+        OP Nightfall
       </div>
-      <div className="px-3.5 border-l border-zinc-800 font-display text-[13px] font-bold tracking-[3px] text-red-400 h-full flex items-center">
-        UNCLASSIFIED
+      <div className="hidden items-center border-l border-danger bg-danger px-3 font-mono text-[9px] font-black uppercase tracking-widest text-white md:flex">
+        Unclassified
       </div>
     </footer>
   )

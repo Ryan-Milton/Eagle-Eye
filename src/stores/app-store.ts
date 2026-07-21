@@ -1,6 +1,20 @@
 import { create } from 'zustand'
 import type { NavView } from '@/types'
 
+export type Theme = 'signal' | 'schematic'
+
+const THEME_STORAGE_KEY = 'eagle-eye-theme'
+
+function getInitialTheme(): Theme {
+  if (typeof window === 'undefined') return 'signal'
+
+  try {
+    return window.localStorage.getItem(THEME_STORAGE_KEY) === 'schematic' ? 'schematic' : 'signal'
+  } catch {
+    return 'signal'
+  }
+}
+
 interface FlyToTarget {
   center: [number, number]
   zoom: number
@@ -9,6 +23,7 @@ interface FlyToTarget {
 
 interface AppState {
   activeView: NavView
+  theme: Theme
   sessionStart: number
   /** Start of the timeline window (ms timestamp). Default: 6 hours ago */
   timelineStart: number
@@ -23,6 +38,7 @@ interface AppState {
   /** Pending fly-to target from region presets or other UI */
   flyToTarget: FlyToTarget | null
   setActiveView: (view: NavView) => void
+  setTheme: (theme: Theme) => void
   setTimelineCursor: (ms: number) => void
   setTimelineLive: (live: boolean) => void
   setTimelinePlaying: (playing: boolean) => void
@@ -35,6 +51,7 @@ const SIX_HOURS = 6 * 60 * 60 * 1000
 
 export const useAppStore = create<AppState>()((set) => ({
   activeView: 'Globe',
+  theme: getInitialTheme(),
   sessionStart: Date.now(),
   timelineStart: Date.now() - SIX_HOURS,
   timelineCursor: Date.now(),
@@ -43,6 +60,15 @@ export const useAppStore = create<AppState>()((set) => ({
   timelineSpeed: 1,
   flyToTarget: null,
   setActiveView: (view) => set({ activeView: view }),
+  setTheme: (theme) => {
+    if (typeof document !== 'undefined') document.documentElement.dataset.theme = theme
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+    } catch {
+      // Theme still applies for this session when storage is unavailable.
+    }
+    set({ theme })
+  },
   setTimelineCursor: (ms) => set({ timelineCursor: ms, timelineLive: false }),
   setTimelineLive: (live) => set(live ? { timelineLive: true, timelineCursor: Date.now(), timelinePlaying: false } : { timelineLive: live }),
   setTimelinePlaying: (playing) => set({ timelinePlaying: playing }),

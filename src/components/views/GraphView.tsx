@@ -1,5 +1,4 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react'
-import { useSatelliteStore } from '@/stores/satellite-store'
 import { useVesselStore } from '@/stores/vessel-store'
 import { useFlightStore } from '@/stores/flight-store'
 import { useWeatherStore } from '@/stores/weather-store'
@@ -10,9 +9,12 @@ import { useOsintStore } from '@/stores/osint-store'
 import { usePortStore } from '@/stores/port-store'
 import { useRFStore } from '@/stores/rf-store'
 import { useEconomicStore } from '@/stores/economic-store'
+import { useAppStore } from '@/stores/app-store'
 import { haversineDistance } from '@/lib/utils'
-import { DOMAIN_HEX_COLORS, DOMAIN_LABELS, CHART_TOOLTIP_STYLE, CHART_AXIS_STYLE, CHART_GRID_STYLE, activeBarGrow } from '@/lib/chart-theme'
-import { BarChart, Bar, RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid, Cell } from 'recharts'
+import { getDomainColors, getVisualTheme } from '@/lib/visual-theme'
+import { DOMAIN_LABELS, CHART_TOOLTIP_STYLE, CHART_AXIS_STYLE, CHART_GRID_STYLE, CHART_BAR_STYLE, activeBarGrow } from '@/lib/chart-theme'
+import { BarChart, Bar, RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts'
+import { AnalysisChartRegion, AnalysisPanel, AnalysisSectionTitle, DomainMark } from './shared/AnalysisPrimitives'
 
 interface GraphNode {
   id: string
@@ -39,8 +41,16 @@ export function GraphView() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animRef = useRef<number>(0)
   const nodesRef = useRef<GraphNode[]>([])
+  const layoutNodesRef = useRef<GraphNode[] | null>(null)
+  const hoveredNodeRef = useRef<GraphNode | null>(null)
+  const selectedNodeRef = useRef<GraphNode | null>(null)
+  const selectedEdgeIdsRef = useRef<Set<string>>(new Set())
+  const connectedNodeIdsRef = useRef<Set<string>>(new Set())
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null)
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
+  const theme = useAppStore(state => state.theme)
+  const domainColors = getDomainColors(theme)
+  const visualTheme = getVisualTheme(theme)
 
   const { vessels, version: vv } = useVesselStore()
   const { flights, version: fv } = useFlightStore()
@@ -92,7 +102,7 @@ export function GraphView() {
     // Initialize positions in a circle
     for (let i = 0; i < allNodes.length; i++) {
       const angle = (i / allNodes.length) * Math.PI * 2
-      const r = 200 + Math.random() * 100
+      const r = 250
       allNodes[i].x = 400 + Math.cos(angle) * r
       allNodes[i].y = 300 + Math.sin(angle) * r
     }
@@ -113,25 +123,15 @@ export function GraphView() {
   }, [vv, fv, wv, nv, cv, cyv, ov, pv, rv, ev, vessels, flights, weatherEvents, newsEvents, conflictEvents, cyberEvents, osintPosts, ports, rfSpots, econIndicators])
 
   // Stats computations
-  const domainNodeCounts = useMemo(() => {
-    const counts: Record<string, number> = {}
-    for (const n of nodes) counts[n.domain] = (counts[n.domain] || 0) + 1
-    return Object.entries(counts).map(([domain, count]) => ({
-      domain: DOMAIN_LABELS[domain] || domain,
-      count,
-      fill: DOMAIN_HEX_COLORS[domain] || '#a1a1aa',
-    }))
-  }, [nodes])
-
   const radarData = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const n of nodes) counts[n.domain] = (counts[n.domain] || 0) + 1
     const max = Math.max(...Object.values(counts), 1)
-    return Object.keys(DOMAIN_HEX_COLORS).map(domain => ({
+    return Object.keys(domainColors).map(domain => ({
       domain: DOMAIN_LABELS[domain] || domain,
       value: Math.round(((counts[domain] || 0) / max) * 100),
     }))
-  }, [nodes])
+  }, [domainColors, nodes])
 
   const topConnections = useMemo(() => {
     const nodeMap = new Map(nodes.map(n => [n.id, n]))
@@ -190,13 +190,18 @@ export function GraphView() {
     return ids
   }, [selectedNode, edges])
 
+  hoveredNodeRef.current = hoveredNode
+  selectedNodeRef.current = selectedNode
+  selectedEdgeIdsRef.current = selectedEdgeIds
+  connectedNodeIdsRef.current = new Set(connectedNodes.map(node => node.id))
+
   // Canvas mouse interaction
   const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
-    const mx = (e.clientX - rect.left) * (canvas.width / rect.width)
-    const my = (e.clientY - rect.top) * (canvas.height / rect.height)
+    const mx = e.clientX - rect.left
+    const my = e.clientY - rect.top
 
     let closest: GraphNode | null = null
     let closestDist = 20
@@ -218,32 +223,68 @@ export function GraphView() {
   }, [hoveredNode])
 
   // Canvas rendering
+  /* eslint-disable react-hooks/immutability -- The force simulation intentionally mutates its canvas-local node copies. */
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const nodeMap = new Map(nodes.map(n => [n.id, n]))
-    nodesRef.current = nodes
+    const isNewLayout = layoutNodesRef.current !== nodes
+    const simulationNodes = isNewLayout ? nodes.map(node => ({ ...node })) : nodesRef.current
+    const nodeMap = new Map(simulationNodes.map(n => [n.id, n]))
+    nodesRef.current = simulationNodes
 
-    // Size canvas
+    // Keep simulation coordinates in CSS pixels and scale only the backing store.
     const container = canvas.parentElement!
-    const rect = container.getBoundingClientRect()
-    canvas.width = rect.width
-    canvas.height = rect.height
+    let width = 1
+    let height = 1
+    let dpr = 1
+    let cx = 0.5
+    let cy = 0.5
 
-    // Update center gravity target
-    const cx = rect.width / 2
-    const cy = rect.height / 2
+    const resizeCanvas = () => {
+      const rect = container.getBoundingClientRect()
+      const nextWidth = Math.max(1, rect.width)
+      const nextHeight = Math.max(1, rect.height)
+      const nextDpr = Math.max(1, window.devicePixelRatio || 1)
+      const nextCx = nextWidth / 2
+      const nextCy = nextHeight / 2
 
-    // Re-initialize positions based on actual canvas size
-    for (let i = 0; i < nodes.length; i++) {
-      const angle = (i / nodes.length) * Math.PI * 2
-      const r = Math.min(cx, cy) * 0.6 + Math.random() * Math.min(cx, cy) * 0.2
-      nodes[i].x = cx + Math.cos(angle) * r
-      nodes[i].y = cy + Math.sin(angle) * r
+      if (layoutNodesRef.current === nodes && width > 1 && height > 1) {
+        const dx = nextCx - cx
+        const dy = nextCy - cy
+        for (const node of simulationNodes) {
+          node.x += dx
+          node.y += dy
+        }
+      }
+
+      width = nextWidth
+      height = nextHeight
+      dpr = nextDpr
+      cx = nextCx
+      cy = nextCy
+      canvas.width = Math.round(width * dpr)
+      canvas.height = Math.round(height * dpr)
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     }
+
+    resizeCanvas()
+
+    if (isNewLayout) {
+      for (let i = 0; i < simulationNodes.length; i++) {
+        const angle = (i / simulationNodes.length) * Math.PI * 2
+        const r = Math.min(cx, cy) * 0.6 + Math.random() * Math.min(cx, cy) * 0.2
+        simulationNodes[i].x = cx + Math.cos(angle) * r
+        simulationNodes[i].y = cy + Math.sin(angle) * r
+      }
+      layoutNodesRef.current = nodes
+    }
+
+    const resizeObserver = new ResizeObserver(resizeCanvas)
+    resizeObserver.observe(container)
+    window.addEventListener('resize', resizeCanvas)
 
     function tick() {
       // Spring forces on edges
@@ -262,23 +303,23 @@ export function GraphView() {
       }
 
       // Repulsion
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const dx = nodes[j].x - nodes[i].x
-          const dy = nodes[j].y - nodes[i].y
+      for (let i = 0; i < simulationNodes.length; i++) {
+        for (let j = i + 1; j < simulationNodes.length; j++) {
+          const dx = simulationNodes[j].x - simulationNodes[i].x
+          const dy = simulationNodes[j].y - simulationNodes[i].y
           const dist = Math.sqrt(dx * dx + dy * dy) || 1
           if (dist < 60) {
             const force = 0.5 / dist
-            nodes[i].vx -= (dx / dist) * force
-            nodes[i].vy -= (dy / dist) * force
-            nodes[j].vx += (dx / dist) * force
-            nodes[j].vy += (dy / dist) * force
+            simulationNodes[i].vx -= (dx / dist) * force
+            simulationNodes[i].vy -= (dy / dist) * force
+            simulationNodes[j].vx += (dx / dist) * force
+            simulationNodes[j].vy += (dy / dist) * force
           }
         }
       }
 
       // Center gravity + damping
-      for (const node of nodes) {
+      for (const node of simulationNodes) {
         node.vx += (cx - node.x) * 0.0005
         node.vy += (cy - node.y) * 0.0005
         node.vx *= 0.95
@@ -288,9 +329,8 @@ export function GraphView() {
       }
 
       // Draw
-      const w = canvas!.width
-      const h = canvas!.height
-      ctx!.clearRect(0, 0, w, h)
+      ctx!.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx!.clearRect(0, 0, width, height)
 
       // Edges
       for (const edge of edges) {
@@ -298,8 +338,8 @@ export function GraphView() {
         const t = nodeMap.get(edge.target)
         if (!s || !t) continue
         const edgeKey = `${edge.source}-${edge.target}`
-        const isSelected = selectedEdgeIds.has(edgeKey)
-        const color = DOMAIN_HEX_COLORS[s.domain] || '#3f3f46'
+        const isSelected = selectedEdgeIdsRef.current.has(edgeKey)
+        const color = domainColors[s.domain as keyof typeof domainColors] || visualTheme.lineMuted
         ctx!.strokeStyle = color
         ctx!.globalAlpha = isSelected ? 0.6 : 0.12
         ctx!.lineWidth = isSelected ? 1.5 : 0.5
@@ -311,39 +351,29 @@ export function GraphView() {
       ctx!.globalAlpha = 1
 
       // Nodes
-      for (const node of nodes) {
-        const color = DOMAIN_HEX_COLORS[node.domain] ?? '#a1a1aa'
-        const isHovered = hoveredNode?.id === node.id
-        const isSelected = selectedNode?.id === node.id
-        const isConnected = selectedNode && connectedNodes.some(n => n.id === node.id)
+      for (const node of simulationNodes) {
+        const color = domainColors[node.domain as keyof typeof domainColors] ?? visualTheme.mutedForeground
+        const isHovered = hoveredNodeRef.current?.id === node.id
+        const isSelected = selectedNodeRef.current?.id === node.id
+        const isConnected = connectedNodeIdsRef.current.has(node.id)
 
-        // Glow for selected/connected
-        if (isSelected || isConnected) {
-          ctx!.shadowColor = color
-          ctx!.shadowBlur = 8
-        }
-
-        ctx!.fillStyle = color
+        ctx!.fillStyle = isSelected ? visualTheme.signal : color
         ctx!.globalAlpha = (isSelected || isConnected || isHovered) ? 1 : 0.7
         ctx!.beginPath()
-        ctx!.arc(node.x, node.y, isSelected ? 7 : isHovered ? 6 : 4, 0, Math.PI * 2)
+        ctx!.arc(node.x, node.y, isSelected ? 6 : isHovered ? 5 : 4, 0, Math.PI * 2)
         ctx!.fill()
 
-        ctx!.shadowColor = 'transparent'
-        ctx!.shadowBlur = 0
         ctx!.globalAlpha = 1
 
-        // Highlight ring
+        // A crisp line frame distinguishes interaction without ambient glow.
         if (isHovered || isSelected) {
-          ctx!.strokeStyle = color
+          ctx!.strokeStyle = isSelected ? visualTheme.signal : color
           ctx!.lineWidth = 1.5
-          ctx!.beginPath()
-          ctx!.arc(node.x, node.y, (isSelected ? 7 : 6) + 3, 0, Math.PI * 2)
-          ctx!.stroke()
+          const frameSize = isSelected ? 18 : 14
+          ctx!.strokeRect(node.x - frameSize / 2, node.y - frameSize / 2, frameSize, frameSize)
 
-          // Label
-          ctx!.font = '10px "DM Mono", monospace'
-          ctx!.fillStyle = '#d4d4d8'
+          ctx!.font = '600 10px "IBM Plex Mono", monospace'
+          ctx!.fillStyle = visualTheme.foreground
           ctx!.textAlign = 'center'
           ctx!.fillText(node.name.slice(0, 30), node.x, node.y - 14)
         }
@@ -354,102 +384,113 @@ export function GraphView() {
 
     tick()
 
-    return () => cancelAnimationFrame(animRef.current)
-  }, [nodes, edges, hoveredNode, selectedNode, selectedEdgeIds, connectedNodes])
+    return () => {
+      cancelAnimationFrame(animRef.current)
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', resizeCanvas)
+    }
+  }, [nodes, edges, theme, domainColors, visualTheme])
+  /* eslint-enable react-hooks/immutability */
 
   return (
-    <div className="fixed top-[46px] left-64 right-[272px] bottom-[34px] bg-zinc-950 flex">
+    <div className="flex h-full min-h-0 flex-col bg-background text-foreground xl:flex-row">
       {/* Canvas area */}
-      <div className="flex-1 relative">
-        <div className="absolute top-3 left-3 font-display text-[12px] font-semibold tracking-[3px] text-zinc-600 uppercase z-10">
-          Entity Graph — {nodes.length} nodes, {edges.length} edges
+      <div className="neo-grid-fine relative min-h-[24rem] flex-1 border-b border-line xl:min-h-0 xl:border-b-0">
+        <div className="neo-kicker absolute left-3 top-3 z-10 border border-line bg-panel px-2 py-1 text-foreground">
+          Entity Graph / {nodes.length} nodes / {edges.length} edges
         </div>
         {/* Legend */}
-        <div className="absolute top-3 right-3 flex flex-wrap gap-x-3 gap-y-1 z-10 max-w-[400px]">
-          {Object.entries(DOMAIN_HEX_COLORS).map(([domain, color]) => (
+        <div className="absolute bottom-3 left-3 right-3 z-10 flex max-h-24 flex-wrap gap-x-3 gap-y-1 overflow-y-auto border border-line bg-panel p-2 sm:bottom-auto sm:left-auto sm:top-3 sm:max-w-[420px]">
+          {Object.entries(domainColors).map(([domain, color]) => (
             <div key={domain} className="flex items-center gap-1">
-              <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-              <span className="font-mono text-[10px] text-zinc-500 uppercase">{DOMAIN_LABELS[domain] || domain}</span>
+              <DomainMark color={color} />
+              <span className="neo-kicker text-[9px] text-muted-foreground">{DOMAIN_LABELS[domain] || domain}</span>
             </div>
           ))}
         </div>
         <canvas
           ref={canvasRef}
-          className="w-full h-full"
+          className="h-full w-full"
           onMouseMove={handleCanvasMouseMove}
           onClick={handleCanvasClick}
         />
       </div>
 
       {/* Stats sidebar */}
-      <div className="w-72 bg-zinc-900/50 border-l border-zinc-800 p-3 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700 flex flex-col gap-4">
+      <aside className="neo-scrollbar grid max-h-[45%] w-full shrink-0 grid-cols-1 gap-3 overflow-y-auto bg-panel p-3 sm:grid-cols-2 xl:max-h-none xl:w-80 xl:grid-cols-1 xl:border-l xl:border-line">
         {/* Domain Radar */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
-          <div className="font-display text-[11px] font-semibold tracking-[2px] text-zinc-500 uppercase mb-2">Node Distribution</div>
-          <ResponsiveContainer width="100%" height={180}>
+        <AnalysisPanel>
+          <AnalysisSectionTitle className="m-3">Node Distribution</AnalysisSectionTitle>
+          <AnalysisChartRegion className="h-[180px] p-2">
+            <ResponsiveContainer width="100%" height="100%">
             <RadarChart data={radarData}>
-              <PolarGrid stroke="#27272a" />
-              <PolarAngleAxis dataKey="domain" tick={{ fill: '#71717a', fontSize: 9, fontFamily: '"DM Mono", monospace' }} />
-              <Radar dataKey="value" stroke="#f97316" fill="#f97316" fillOpacity={0.2} />
+              <PolarGrid stroke="var(--line-muted)" />
+              <PolarAngleAxis dataKey="domain" tick={{ fill: 'var(--muted-foreground)', fontSize: 9, fontFamily: '"IBM Plex Mono", monospace' }} />
+              <Radar dataKey="value" stroke="var(--signal)" fill="var(--signal)" fillOpacity={0.12} />
               <Tooltip {...CHART_TOOLTIP_STYLE} />
             </RadarChart>
-          </ResponsiveContainer>
-        </div>
+            </ResponsiveContainer>
+          </AnalysisChartRegion>
+        </AnalysisPanel>
 
         {/* Top Connections */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
-          <div className="font-display text-[11px] font-semibold tracking-[2px] text-zinc-500 uppercase mb-2">Top Connections</div>
+        <AnalysisPanel>
+          <AnalysisSectionTitle className="m-3">Top Connections</AnalysisSectionTitle>
+          <AnalysisChartRegion className="p-2">
           {topConnections.length > 0 ? (
             <ResponsiveContainer width="100%" height={topConnections.length * 24 + 20}>
               <BarChart data={topConnections} layout="vertical" margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
                 <CartesianGrid {...CHART_GRID_STYLE} horizontal={false} />
                 <XAxis type="number" {...CHART_AXIS_STYLE} />
-                <YAxis type="category" dataKey="pair" width={70} tick={{ fill: '#71717a', fontSize: 9, fontFamily: '"DM Mono", monospace' }} />
+                <YAxis type="category" dataKey="pair" width={70} tick={{ fill: 'var(--muted-foreground)', fontSize: 9, fontFamily: '"IBM Plex Mono", monospace' }} />
                 <Tooltip {...CHART_TOOLTIP_STYLE} />
-                <Bar dataKey="count" fill="#f97316" radius={[0, 2, 2, 0]} activeBar={activeBarGrow} />
+                <Bar dataKey="count" fill="var(--signal)" {...CHART_BAR_STYLE} activeBar={activeBarGrow} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="font-mono text-[11px] text-zinc-600 text-center py-4">No cross-domain connections</div>
+            <div className="neo-data py-4 text-center text-xs text-muted-foreground">No cross-domain connections</div>
           )}
-        </div>
+          </AnalysisChartRegion>
+        </AnalysisPanel>
 
         {/* Proximity Histogram */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
-          <div className="font-display text-[11px] font-semibold tracking-[2px] text-zinc-500 uppercase mb-2">Edge Distance (km)</div>
-          <ResponsiveContainer width="100%" height={100}>
+        <AnalysisPanel>
+          <AnalysisSectionTitle className="m-3">Edge Distance (km)</AnalysisSectionTitle>
+          <AnalysisChartRegion className="h-[120px] p-2">
+            <ResponsiveContainer width="100%" height="100%">
             <BarChart data={distanceHistogram} margin={{ left: 0, right: 0, top: 5, bottom: 5 }}>
               <XAxis dataKey="range" {...CHART_AXIS_STYLE} />
               <YAxis hide />
               <Tooltip {...CHART_TOOLTIP_STYLE} />
-              <Bar dataKey="count" fill="#a78bfa" radius={[2, 2, 0, 0]} activeBar={activeBarGrow} />
+                <Bar dataKey="count" fill={domainColors.rf} {...CHART_BAR_STYLE} activeBar={activeBarGrow} />
             </BarChart>
-          </ResponsiveContainer>
-        </div>
+            </ResponsiveContainer>
+          </AnalysisChartRegion>
+        </AnalysisPanel>
 
         {/* Selected Node Detail */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
-          <div className="font-display text-[11px] font-semibold tracking-[2px] text-zinc-500 uppercase mb-2">Selected Entity</div>
+        <AnalysisPanel className="p-3">
+          <AnalysisSectionTitle className="mb-3">Selected Entity</AnalysisSectionTitle>
           {selectedNode ? (
             <div className="space-y-2">
               <div>
-                <div className="font-mono text-[12px] text-zinc-200 truncate">{selectedNode.name}</div>
+                <div className="neo-data truncate text-sm text-foreground">{selectedNode.name}</div>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: DOMAIN_HEX_COLORS[selectedNode.domain] }} />
-                  <span className="font-mono text-[10px] text-zinc-500 uppercase">{selectedNode.domain}</span>
+                  <DomainMark color={domainColors[selectedNode.domain as keyof typeof domainColors]} />
+                  <span className="neo-kicker text-muted-foreground">{selectedNode.domain}</span>
                 </div>
-                <div className="font-mono text-[10px] text-zinc-600 mt-1">
+                <div className="neo-data mt-1 text-xs text-muted-foreground">
                   {selectedNode.lat.toFixed(3)}, {selectedNode.lon.toFixed(3)}
                 </div>
               </div>
               {connectedNodes.length > 0 && (
                 <div>
-                  <div className="font-mono text-[10px] text-zinc-500 uppercase mb-1">Connected ({connectedNodes.length})</div>
-                  <div className="space-y-0.5 max-h-[160px] overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
+                  <div className="neo-kicker mb-1 text-muted-foreground">Connected ({connectedNodes.length})</div>
+                  <div className="neo-scrollbar max-h-[160px] space-y-0.5 overflow-y-auto">
                     {connectedNodes.map(n => (
                       <div key={n.id} className="flex items-center gap-1.5">
-                        <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: DOMAIN_HEX_COLORS[n.domain] }} />
-                        <span className="font-mono text-[10px] text-zinc-400 truncate">{n.name.slice(0, 30)}</span>
+                        <DomainMark color={domainColors[n.domain as keyof typeof domainColors]} className="size-1.5" />
+                        <span className="neo-data truncate text-xs text-muted-foreground">{n.name.slice(0, 30)}</span>
                       </div>
                     ))}
                   </div>
@@ -457,10 +498,10 @@ export function GraphView() {
               )}
             </div>
           ) : (
-            <div className="font-mono text-[11px] text-zinc-600 text-center py-4">Click a node to inspect</div>
+            <div className="neo-data py-4 text-center text-xs text-muted-foreground">Click a node to inspect</div>
           )}
-        </div>
-      </div>
+        </AnalysisPanel>
+      </aside>
     </div>
   )
 }

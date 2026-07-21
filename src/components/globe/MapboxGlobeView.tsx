@@ -17,9 +17,10 @@ import { usePortStore } from '@/stores/port-store'
 import { useCameraStore } from '@/stores/camera-store'
 import { useRFStore } from '@/stores/rf-store'
 // import { useEconomicStore } from '@/stores/economic-store'
-import { useInfrastructureStore, INFRASTRUCTURE_COLORS, type InfrastructureLayerType } from '@/stores/infrastructure-store'
+import { useInfrastructureStore, type InfrastructureLayerType } from '@/stores/infrastructure-store'
 import { useSelectionStore } from '@/stores/selection-store'
 import { useAppStore } from '@/stores/app-store'
+import { getDomainColors, getVisualTheme, type DomainColors, type VisualTheme, type VisualThemeName } from '@/lib/visual-theme'
 import { WEATHER_TYPE_DOT_COLORS, NEWS_CATEGORY_DOT_COLORS, CONFLICT_TYPE_DOT_COLORS, CYBER_TYPE_DOT_COLORS, OSINT_PLATFORM_DOT_COLORS, RF_SOURCE_DOT_COLORS, PORT_SIZE_DOT_COLORS } from '@/lib/colors'
 import { CoordinateHUD } from './CoordinateHUD'
 import { MeasurementTool } from './MeasurementTool'
@@ -49,33 +50,20 @@ const VIZ_MODE_FILTERS: Record<VizMode, string> = {
   crt: 'contrast(1.15) brightness(0.9) saturate(1.2)',
 }
 
-const FOG_CONFIGS: Record<MapStyle, mapboxgl.FogSpecification> = {
-  dark: {
-    'color': '#0a0a0a',
-    'high-color': '#1a1a2e',
-    'horizon-blend': 0.08,
-    'space-color': '#09090b',
-    'star-intensity': 0.4,
-  },
-  light: {
-    'color': '#e0e8f0',
-    'high-color': '#a8c4e0',
-    'horizon-blend': 0.01,
-    'space-color': '#09090b',
-    'star-intensity': 0.4,
-  },
-  satellite: {
-    'color': '#0a0a0a',
-    'high-color': '#0a1628',
-    'horizon-blend': 0.06,
-    'space-color': '#09090b',
-    'star-intensity': 0.5,
-  },
-}
-
 const VESSEL_COLOR = '#22d3ee'
 const FLIGHT_COLOR = '#eab308'
 const EARTH_RADIUS_M = 6_371_000
+
+function getFogConfig(themeName: VisualThemeName, style: MapStyle): mapboxgl.FogSpecification {
+  const theme = getVisualTheme(themeName)
+  return {
+    'color': style === 'light' ? theme.panelRaised : theme.panelSubtle,
+    'high-color': style === 'satellite' ? theme.panel : theme.muted,
+    'horizon-blend': style === 'light' ? 0.01 : style === 'satellite' ? 0.06 : 0.08,
+    'space-color': theme.background,
+    'star-intensity': themeName === 'signal' ? (style === 'satellite' ? 0.5 : 0.35) : 0.08,
+  }
+}
 
 function hexToString(hex: number): string {
   return '#' + hex.toString(16).padStart(6, '0')
@@ -440,8 +428,10 @@ function createDotImage(size = 16): ImageData {
   return ctx.getImageData(0, 0, size, size)
 }
 
-function addEntityLayers(map: mapboxgl.Map) {
+function addEntityLayers(map: mapboxgl.Map, theme: VisualTheme, domains: DomainColors) {
   if (map.getSource('entity-trail')) return
+
+  const normalOpacity = 0.76
 
   if (!map.hasImage('sat-dot')) {
     map.addImage('sat-dot', createDotImage(16), { sdf: true })
@@ -457,7 +447,7 @@ function addEntityLayers(map: mapboxgl.Map) {
     source: 'entity-trail',
     paint: {
       'circle-radius': 1.5,
-      'circle-color': ['get', 'color'],
+      'circle-color': theme.signal,
       'circle-opacity': ['get', 'opacity'],
     },
   })
@@ -477,8 +467,8 @@ function addEntityLayers(map: mapboxgl.Map) {
       'symbol-elevation-reference': 'sea',
     } as mapboxgl.SymbolLayerSpecification['layout'],
     paint: {
-      'icon-color': ['get', 'color'],
-      'icon-opacity': ['case', ['get', 'selected'], 1, 0.7],
+      'icon-color': ['case', ['get', 'selected'], theme.signal, domains.satellite],
+      'icon-opacity': ['case', ['get', 'selected'], 1, normalOpacity],
       'symbol-z-offset': ['get', 'zOffset'],
     } as mapboxgl.SymbolLayerSpecification['paint'],
   })
@@ -493,7 +483,7 @@ function addEntityLayers(map: mapboxgl.Map) {
     type: 'line',
     source: 'orbital-track',
     paint: {
-      'line-color': ['get', 'color'],
+      'line-color': theme.signal,
       'line-width': 1.5,
       'line-opacity': 0.7,
       'line-dasharray': [4, 3],
@@ -510,7 +500,7 @@ function addEntityLayers(map: mapboxgl.Map) {
     type: 'fill',
     source: 'sat-footprint',
     paint: {
-      'fill-color': ['get', 'color'],
+      'fill-color': theme.signal,
       'fill-opacity': 0.08,
     },
   })
@@ -519,7 +509,7 @@ function addEntityLayers(map: mapboxgl.Map) {
     type: 'line',
     source: 'sat-footprint',
     paint: {
-      'line-color': ['get', 'color'],
+      'line-color': theme.signal,
       'line-width': 1,
       'line-opacity': 0.4,
     },
@@ -536,10 +526,10 @@ function addEntityLayers(map: mapboxgl.Map) {
     source: 'vessels',
     paint: {
       'circle-radius': ['case', ['get', 'selected'], 4, 2],
-      'circle-color': VESSEL_COLOR,
-      'circle-opacity': ['case', ['get', 'selected'], 1, 0.7],
+      'circle-color': domains.vessel,
+      'circle-opacity': ['case', ['get', 'selected'], 1, normalOpacity],
       'circle-stroke-width': ['case', ['get', 'selected'], 1.5, 0],
-      'circle-stroke-color': VESSEL_COLOR,
+      'circle-stroke-color': theme.signal,
     },
   })
 
@@ -554,10 +544,10 @@ function addEntityLayers(map: mapboxgl.Map) {
     source: 'flights',
     paint: {
       'circle-radius': ['case', ['get', 'selected'], 4, 2],
-      'circle-color': FLIGHT_COLOR,
-      'circle-opacity': ['case', ['get', 'selected'], 1, 0.7],
+      'circle-color': domains.flight,
+      'circle-opacity': ['case', ['get', 'selected'], 1, normalOpacity],
       'circle-stroke-width': ['case', ['get', 'selected'], 1.5, 0],
-      'circle-stroke-color': FLIGHT_COLOR,
+      'circle-stroke-color': theme.signal,
     },
   })
 
@@ -571,7 +561,7 @@ function addEntityLayers(map: mapboxgl.Map) {
     type: 'fill',
     source: 'weather-alerts',
     paint: {
-      'fill-color': '#fb7185',
+      'fill-color': domains.weather,
       'fill-opacity': 0.15,
     },
   })
@@ -580,7 +570,7 @@ function addEntityLayers(map: mapboxgl.Map) {
     type: 'line',
     source: 'weather-alerts',
     paint: {
-      'line-color': '#fb7185',
+      'line-color': domains.weather,
       'line-width': 1.5,
       'line-opacity': 0.6,
     },
@@ -603,10 +593,10 @@ function addEntityLayers(map: mapboxgl.Map) {
         ['interpolate', ['linear'], ['coalesce', ['get', 'magnitude'], 2], 0, 2, 5, 4, 9, 6],
         3,
       ],
-      'circle-color': ['get', 'color'],
-      'circle-opacity': ['case', ['get', 'selected'], 1, 0.7],
+      'circle-color': domains.weather,
+      'circle-opacity': ['case', ['get', 'selected'], 1, normalOpacity],
       'circle-stroke-width': ['case', ['get', 'selected'], 1.5, 0],
-      'circle-stroke-color': ['get', 'color'],
+      'circle-stroke-color': theme.signal,
     },
   })
 
@@ -621,10 +611,10 @@ function addEntityLayers(map: mapboxgl.Map) {
     source: 'news-events',
     paint: {
       'circle-radius': ['case', ['get', 'selected'], 4, 2],
-      'circle-color': ['get', 'color'],
-      'circle-opacity': ['case', ['get', 'selected'], 1, 0.6],
+      'circle-color': domains.news,
+      'circle-opacity': ['case', ['get', 'selected'], 1, normalOpacity],
       'circle-stroke-width': ['case', ['get', 'selected'], 1.5, 0],
-      'circle-stroke-color': ['get', 'color'],
+      'circle-stroke-color': theme.signal,
     },
   })
 
@@ -643,10 +633,10 @@ function addEntityLayers(map: mapboxgl.Map) {
         ['get', 'selected'], 5,
         ['interpolate', ['linear'], ['coalesce', ['get', 'fatalities'], 0], 0, 2, 10, 4, 100, 6],
       ],
-      'circle-color': ['get', 'color'],
-      'circle-opacity': ['case', ['get', 'selected'], 1, 0.7],
+      'circle-color': domains.conflict,
+      'circle-opacity': ['case', ['get', 'selected'], 1, normalOpacity],
       'circle-stroke-width': ['case', ['get', 'selected'], 1.5, 0],
-      'circle-stroke-color': ['get', 'color'],
+      'circle-stroke-color': theme.signal,
     },
   })
 
@@ -665,10 +655,10 @@ function addEntityLayers(map: mapboxgl.Map) {
         ['get', 'selected'], 4,
         ['interpolate', ['linear'], ['coalesce', ['get', 'severity'], 1], 1, 2, 5, 3, 10, 5],
       ],
-      'circle-color': ['get', 'color'],
-      'circle-opacity': ['case', ['get', 'selected'], 1, 0.6],
+      'circle-color': domains.cyber,
+      'circle-opacity': ['case', ['get', 'selected'], 1, normalOpacity],
       'circle-stroke-width': ['case', ['get', 'selected'], 1.5, 0],
-      'circle-stroke-color': ['get', 'color'],
+      'circle-stroke-color': theme.signal,
     },
   })
 
@@ -683,10 +673,10 @@ function addEntityLayers(map: mapboxgl.Map) {
     source: 'osint-posts',
     paint: {
       'circle-radius': 2,
-      'circle-color': ['get', 'color'],
-      'circle-opacity': 0.7,
+      'circle-color': domains.osint,
+      'circle-opacity': normalOpacity,
       'circle-stroke-width': 0.5,
-      'circle-stroke-color': '#2dd4bf',
+      'circle-stroke-color': domains.osint,
     },
   })
 
@@ -702,10 +692,10 @@ function addEntityLayers(map: mapboxgl.Map) {
     minzoom: 4,
     paint: {
       'circle-radius': ['match', ['get', 'size'], 'large', 3, 'medium', 2, 1.5],
-      'circle-color': ['get', 'color'],
-      'circle-opacity': 0.7,
+      'circle-color': domains.port,
+      'circle-opacity': normalOpacity,
       'circle-stroke-width': 1,
-      'circle-stroke-color': '#1e3a5f',
+      'circle-stroke-color': theme.background,
     },
   })
 
@@ -720,7 +710,7 @@ function addEntityLayers(map: mapboxgl.Map) {
     source: 'rf-spots',
     filter: ['==', '$type', 'LineString'],
     paint: {
-      'line-color': ['get', 'color'],
+      'line-color': domains.rf,
       'line-width': 1.5,
       'line-opacity': ['interpolate', ['linear'], ['coalesce', ['get', 'snr'], 5], 0, 0.2, 10, 0.5, 30, 0.8],
     },
@@ -732,7 +722,7 @@ function addEntityLayers(map: mapboxgl.Map) {
     filter: ['==', '$type', 'Point'],
     paint: {
       'circle-radius': 2,
-      'circle-color': ['get', 'color'],
+      'circle-color': domains.rf,
       'circle-opacity': 0.6,
     },
   })
@@ -748,10 +738,10 @@ function addEntityLayers(map: mapboxgl.Map) {
     source: 'cameras',
     paint: {
       'circle-radius': ['case', ['get', 'selected'], 4, 2],
-      'circle-color': '#38bdf8',
-      'circle-opacity': ['case', ['get', 'selected'], 1, 0.7],
+      'circle-color': domains.camera,
+      'circle-opacity': ['case', ['get', 'selected'], 1, normalOpacity],
       'circle-stroke-width': ['case', ['get', 'selected'], 1.5, 0],
-      'circle-stroke-color': '#0ea5e9',
+      'circle-stroke-color': theme.signal,
     },
   })
 
@@ -760,14 +750,14 @@ function addEntityLayers(map: mapboxgl.Map) {
   map.addSource('infra-cables', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
   map.addLayer({
     id: 'infra-cables-layer', type: 'line', source: 'infra-cables',
-    paint: { 'line-color': INFRASTRUCTURE_COLORS.cables, 'line-width': 1.5, 'line-opacity': 0.6 },
+    paint: { 'line-color': domains.infrastructure, 'line-width': 1.5, 'line-opacity': 0.6 },
   })
 
   // Pipelines
   map.addSource('infra-pipelines', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
   map.addLayer({
     id: 'infra-pipelines-layer', type: 'line', source: 'infra-pipelines',
-    paint: { 'line-color': INFRASTRUCTURE_COLORS.pipelines, 'line-width': 2, 'line-opacity': 0.6, 'line-dasharray': [6, 3] },
+    paint: { 'line-color': domains.infrastructure, 'line-width': 2, 'line-opacity': 0.6, 'line-dasharray': [6, 3] },
   })
 
   // Nuclear facilities
@@ -775,8 +765,8 @@ function addEntityLayers(map: mapboxgl.Map) {
   map.addLayer({
     id: 'infra-nuclear-layer', type: 'circle', source: 'infra-nuclear',
     paint: {
-      'circle-radius': 4, 'circle-color': INFRASTRUCTURE_COLORS.nuclear,
-      'circle-opacity': 0.8, 'circle-stroke-width': 2, 'circle-stroke-color': INFRASTRUCTURE_COLORS.nuclear, 'circle-stroke-opacity': 0.4,
+      'circle-radius': 4, 'circle-color': domains.infrastructure,
+      'circle-opacity': 0.8, 'circle-stroke-width': 2, 'circle-stroke-color': theme.foreground, 'circle-stroke-opacity': 0.4,
     },
   })
 
@@ -784,11 +774,11 @@ function addEntityLayers(map: mapboxgl.Map) {
   map.addSource('infra-chokepoints', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
   map.addLayer({
     id: 'infra-chokepoints-fill', type: 'fill', source: 'infra-chokepoints',
-    paint: { 'fill-color': INFRASTRUCTURE_COLORS.chokepoints, 'fill-opacity': 0.1 },
+    paint: { 'fill-color': domains.infrastructure, 'fill-opacity': 0.1 },
   })
   map.addLayer({
     id: 'infra-chokepoints-outline', type: 'line', source: 'infra-chokepoints',
-    paint: { 'line-color': INFRASTRUCTURE_COLORS.chokepoints, 'line-width': 1.5, 'line-opacity': 0.5 },
+    paint: { 'line-color': domains.infrastructure, 'line-width': 1.5, 'line-opacity': 0.5 },
   })
 
   // --- Economic indicators (disabled) ---
@@ -817,14 +807,19 @@ export function MapboxGlobeView() {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const cameraPopupRef = useRef<mapboxgl.Popup | null>(null)
+  const theme = useAppStore(s => s.theme)
+  const initialMapStyle: MapStyle = theme === 'signal' ? 'dark' : 'light'
   const [mapReady, setMapReady] = useState(false)
-  const [mapStyle, setMapStyle] = useState<MapStyle>('dark')
+  const [mapStyle, setMapStyle] = useState<MapStyle>(initialMapStyle)
   const [vizMode, setVizMode] = useState<VizMode>('standard')
   const [vizBrightness, setVizBrightness] = useState(1.4)
   const [vizContrast, setVizContrast] = useState(1.3)
   const [vizPopoverOpen, setVizPopoverOpen] = useState(false)
   const vizPopoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const layersReadyRef = useRef(false)
+  const mapStyleRef = useRef<MapStyle>(initialMapStyle)
+  const lastAppliedThemeRef = useRef(theme)
+  const [styleVersion, setStyleVersion] = useState(0)
 
   // Read from stores
   const toggles = useSatelliteStore(s => s.toggles)
@@ -896,11 +891,11 @@ export function MapboxGlobeView() {
     })
 
     map.on('style.load', () => {
-      const styleName = map.getStyle().name ?? ''
-      const fogKey = styleName.includes('Light') ? 'light' : styleName.includes('Satellite') ? 'satellite' : 'dark'
-      map.setFog(FOG_CONFIGS[fogKey])
-      addEntityLayers(map)
+      const activeTheme = useAppStore.getState().theme
+      map.setFog(getFogConfig(activeTheme, mapStyleRef.current))
+      addEntityLayers(map, getVisualTheme(activeTheme), getDomainColors(activeTheme))
       layersReadyRef.current = true
+      setStyleVersion(version => version + 1)
     })
 
     // Click handlers use store actions directly (stable references)
@@ -1010,25 +1005,49 @@ export function MapboxGlobeView() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container || typeof ResizeObserver === 'undefined') return
+
+    let animationFrame: number | null = null
+    const observer = new ResizeObserver(() => {
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame)
+      animationFrame = requestAnimationFrame(() => mapRef.current?.resize())
+    })
+    observer.observe(container)
+
+    return () => {
+      observer.disconnect()
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame)
+    }
+  }, [])
+
   const handleStyleChange = useCallback((style: MapStyle) => {
-    setMapStyle(style)
+    const nextStyle = (vizMode === 'nvg' || vizMode === 'thermal') ? 'dark' : style
+    mapStyleRef.current = nextStyle
+    setMapStyle(nextStyle)
     const map = mapRef.current
     if (!map) return
     layersReadyRef.current = false
-    map.setStyle(STYLES[style])
-  }, [])
+    map.setStyle(STYLES[nextStyle])
+  }, [vizMode])
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map) return
-    const onStyleLoad = () => {
-      map.setFog(FOG_CONFIGS[mapStyle])
-      addEntityLayers(map)
-      layersReadyRef.current = true
-    }
-    map.on('style.load', onStyleLoad)
-    return () => { map.off('style.load', onStyleLoad) }
-  }, [mapStyle])
+    if (!map || lastAppliedThemeRef.current === theme) return
+    lastAppliedThemeRef.current = theme
+
+    const nextStyle = (vizMode === 'nvg' || vizMode === 'thermal')
+      ? 'dark'
+      : mapStyleRef.current === 'satellite'
+        ? 'satellite'
+        : theme === 'signal' ? 'dark' : 'light'
+
+    mapStyleRef.current = nextStyle
+    setMapStyle(nextStyle)
+    layersReadyRef.current = false
+    map.setStyle(STYLES[nextStyle])
+  }, [theme, vizMode])
 
   // --- Fly-to from region presets ---
   useEffect(() => {
@@ -1132,7 +1151,6 @@ export function MapboxGlobeView() {
         return
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSatId, selectedMmsi, selectedIcao, selectedEventId, selectedNewsId, selectedConflictId, selectedCyberId, selectedRFId, selectedCameraId, toggles, getPositions, vessels, flights, weatherEvents, newsEvents, conflictEvents, cyberEvents, rfSpots, cameraData, vesselVersion, flightVersion, weatherVersion, newsVersion, conflictVersion, cyberVersion, rfVersion, cameraVersion])
 
   // Use timeline cursor only when not live
@@ -1149,8 +1167,8 @@ export function MapboxGlobeView() {
 
     // Layers that use 'selected' property on features
     const circleLayers = ['vessels-layer', 'flights-layer', 'weather-events-layer', 'news-events-layer', 'conflict-events-layer', 'cyber-events-layer', 'rf-stations-layer', 'cameras-layer']
-    const dimOpacity = 0.12
-    const normalOpacity = 0.7
+    const dimOpacity = theme === 'signal' ? 0.12 : 0.22
+    const normalOpacity = theme === 'signal' ? 0.7 : 0.82
 
     for (const layerId of circleLayers) {
       if (!map.getLayer(layerId)) continue
@@ -1175,7 +1193,7 @@ export function MapboxGlobeView() {
       if (!map.getLayer(layerId)) continue
       map.setPaintProperty(layerId, 'circle-opacity', hasSelection ? dimOpacity : normalOpacity)
     }
-  }, [hasSelection, selectedSatId, selectedMmsi, selectedIcao, selectedEventId, selectedNewsId, selectedConflictId, selectedCyberId, selectedRFId, selectedCameraId])
+  }, [hasSelection, selectedSatId, selectedMmsi, selectedIcao, selectedEventId, selectedNewsId, selectedConflictId, selectedCyberId, selectedRFId, selectedCameraId, theme, styleVersion])
 
   // Sync satellite data
   useEffect(() => {
@@ -1252,7 +1270,7 @@ export function MapboxGlobeView() {
         }],
       })
     }
-  }, [satVersion, selectedSatId, toggles, getSatellites])
+  }, [satVersion, selectedSatId, toggles, getSatellites, styleVersion])
 
   // Sync vessel data
   useEffect(() => {
@@ -1396,17 +1414,14 @@ export function MapboxGlobeView() {
           .catch(err => console.warn(`[Infrastructure] Failed to load ${layer}:`, err))
       }
     }
-  }, [infraToggles])
+  }, [infraToggles, styleVersion])
 
   // Camera feed popup
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
 
-    // Remove previous popup without triggering selectCamera(null)
     if (cameraPopupRef.current) {
-      // Remove all close listeners before removing to prevent clearing the new selection
-      ;(cameraPopupRef.current as any)._listeners = {}
       cameraPopupRef.current.remove()
       cameraPopupRef.current = null
     }
@@ -1417,6 +1432,33 @@ export function MapboxGlobeView() {
     if (!cam) return
 
     const thumbSrc = cam.thumbnail || ''
+    const popupContent = document.createElement('div')
+    popupContent.className = 'w-[200px] overflow-hidden bg-panel-raised font-mono text-foreground'
+
+    if (thumbSrc) {
+      const image = document.createElement('img')
+      image.src = thumbSrc
+      image.alt = `${cam.title} camera feed`
+      image.className = 'block h-[140px] w-[200px] object-cover'
+      popupContent.appendChild(image)
+    } else {
+      const noFeed = document.createElement('div')
+      noFeed.className = 'flex h-[140px] w-[200px] items-center justify-center bg-panel-subtle text-[11px] text-muted-foreground'
+      noFeed.textContent = 'No feed'
+      popupContent.appendChild(noFeed)
+    }
+
+    const details = document.createElement('div')
+    details.className = 'border-t border-line-muted px-2 py-1.5'
+    const title = document.createElement('div')
+    title.className = 'truncate pr-5 text-[11px] text-foreground'
+    title.textContent = cam.title
+    const location = document.createElement('div')
+    location.className = 'mt-0.5 text-[10px] text-muted-foreground'
+    location.textContent = `${cam.city}${cam.country ? `, ${cam.country}` : ''}`
+    details.append(title, location)
+    popupContent.appendChild(details)
+
     const popup = new mapboxgl.Popup({
       closeOnClick: false,
       closeButton: true,
@@ -1425,30 +1467,23 @@ export function MapboxGlobeView() {
       offset: 12,
     })
       .setLngLat([cam.lon, cam.lat])
-      .setHTML(`
-        <div style="background:#18181b;border-radius:6px;overflow:hidden;font-family:'DM Mono',monospace;">
-          ${thumbSrc ? `<img src="${thumbSrc}" alt="" style="width:200px;height:140px;object-fit:cover;display:block;" />` : '<div style="width:200px;height:140px;background:#27272a;display:flex;align-items:center;justify-content:center;color:#71717a;font-size:11px;">No feed</div>'}
-          <div style="padding:6px 8px;">
-            <div style="font-size:11px;color:#e4e4e7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${cam.title}</div>
-            <div style="font-size:10px;color:#71717a;margin-top:2px;">${cam.city}${cam.country ? `, ${cam.country}` : ''}</div>
-          </div>
-        </div>
-      `)
+      .setDOMContent(popupContent)
       .addTo(map)
 
-    popup.on('close', () => {
+    const handleClose = () => {
       // Only clear if this popup's camera is still the selected one
       if (useSelectionStore.getState().selectedCameraId === selectedCameraId) {
         useSelectionStore.getState().selectCamera(null)
       }
-    })
+    }
+    popup.on('close', handleClose)
 
     cameraPopupRef.current = popup
 
     return () => {
-      if (cameraPopupRef.current) {
-        ;(cameraPopupRef.current as any)._listeners = {}
-        cameraPopupRef.current.remove()
+      popup.off('close', handleClose)
+      popup.remove()
+      if (cameraPopupRef.current === popup) {
         cameraPopupRef.current = null
       }
     }
@@ -1500,7 +1535,7 @@ export function MapboxGlobeView() {
     : VIZ_MODE_FILTERS[vizMode]
 
   return (
-    <div className="fixed top-[46px] left-64 right-[272px] bottom-[34px]">
+    <div className="relative h-full min-h-0 overflow-hidden bg-background">
       <div
         ref={containerRef}
         className="w-full h-full"
@@ -1554,18 +1589,22 @@ export function MapboxGlobeView() {
       )}
 
       {/* Map style toggle */}
-      <div className="absolute top-3 left-3 flex flex-col gap-1.5 z-20">
-        <div className="flex w-fit rounded-md overflow-hidden border border-zinc-700 bg-zinc-900/90 backdrop-blur-sm">
+      <div className="absolute left-3 top-3 z-20 flex flex-col gap-1.5">
+        <div className="flex w-fit overflow-hidden border border-line bg-panel">
           {(['dark', 'light', 'satellite'] as const).map((style, i) => (
             <button
+              type="button"
               key={style}
               onClick={() => handleStyleChange(style)}
+              disabled={(vizMode === 'nvg' || vizMode === 'thermal') && style !== 'dark'}
+              aria-label={`Use ${style} map style`}
+              aria-pressed={mapStyle === style}
               className={cn(
-                'px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors text-center',
+                'min-h-9 min-w-11 px-3 text-center font-mono text-[10px] font-bold uppercase tracking-wider transition-colors disabled:cursor-not-allowed disabled:opacity-35',
                 mapStyle === style
-                  ? 'bg-orange-500/20 text-orange-400'
-                  : 'text-zinc-500 hover:text-zinc-300',
-                i < 2 && 'border-r border-zinc-700',
+                  ? 'bg-signal text-signal-foreground'
+                  : 'text-muted-foreground hover:bg-panel-raised hover:text-foreground',
+                i < 2 && 'border-r border-line-muted',
               )}
             >
               {style === 'satellite' ? 'sat' : style}
@@ -1575,7 +1614,7 @@ export function MapboxGlobeView() {
 
         {/* Visualization mode toggle */}
         <div
-          className="flex w-fit rounded-md overflow-hidden border border-zinc-700 bg-zinc-900/90 backdrop-blur-sm"
+          className="flex w-fit overflow-hidden border border-line bg-panel"
           onMouseEnter={() => {
             if ((vizMode === 'nvg' || vizMode === 'thermal')) {
               if (vizPopoverTimeout.current) clearTimeout(vizPopoverTimeout.current)
@@ -1588,6 +1627,7 @@ export function MapboxGlobeView() {
         >
           {(['standard', 'nvg', 'thermal', 'crt'] as const).map((mode, i) => (
             <button
+              type="button"
               key={mode}
               onClick={() => {
                 setVizMode(mode)
@@ -1598,15 +1638,14 @@ export function MapboxGlobeView() {
                 if (mode === 'nvg') { setVizBrightness(1.6); setVizContrast(1.3) }
                 else if (mode === 'thermal') { setVizBrightness(1.4); setVizContrast(1.3) }
               }}
+              aria-label={`Use ${mode} visualization mode`}
+              aria-pressed={vizMode === mode}
               className={cn(
-                'px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors text-center',
+                'min-h-9 min-w-11 px-3 text-center font-mono text-[10px] font-bold uppercase tracking-wider transition-colors',
                 vizMode === mode
-                  ? mode === 'nvg' ? 'bg-green-500/20 text-green-400'
-                    : mode === 'thermal' ? 'bg-red-500/20 text-red-400'
-                    : mode === 'crt' ? 'bg-amber-500/20 text-amber-400'
-                    : 'bg-orange-500/20 text-orange-400'
-                  : 'text-zinc-500 hover:text-zinc-300',
-                i < 3 && 'border-r border-zinc-700',
+                  ? 'bg-signal text-signal-foreground'
+                  : 'text-muted-foreground hover:bg-panel-raised hover:text-foreground',
+                i < 3 && 'border-r border-line-muted',
               )}
             >
               {mode === 'standard' ? 'std' : mode}
@@ -1617,7 +1656,7 @@ export function MapboxGlobeView() {
         {/* Brightness/Contrast popover — rendered outside the button row */}
         {(vizMode === 'nvg' || vizMode === 'thermal') && vizPopoverOpen && (
           <div
-            className="w-48 bg-zinc-900/95 border border-zinc-700 rounded-md shadow-xl p-3 backdrop-blur-sm"
+            className="w-52 border border-line bg-panel p-3 text-foreground"
             onMouseEnter={() => {
               if (vizPopoverTimeout.current) clearTimeout(vizPopoverTimeout.current)
             }}
@@ -1627,32 +1666,34 @@ export function MapboxGlobeView() {
           >
             <div className="mb-2.5">
               <div className="flex items-center justify-between mb-1">
-                <span className="font-mono text-[9px] text-zinc-500 uppercase tracking-wider">Brightness</span>
-                <span className="font-mono text-[9px] text-zinc-400">{vizBrightness.toFixed(1)}</span>
+                <label htmlFor="map-viz-brightness" className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Brightness</label>
+                <span className="font-mono text-[10px] text-foreground">{vizBrightness.toFixed(1)}</span>
               </div>
               <input
+                id="map-viz-brightness"
                 type="range"
                 min="0.5"
                 max="2.5"
                 step="0.1"
                 value={vizBrightness}
                 onChange={(e) => setVizBrightness(parseFloat(e.target.value))}
-                className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-zinc-400"
+                className="h-9 w-full cursor-pointer accent-signal"
               />
             </div>
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="font-mono text-[9px] text-zinc-500 uppercase tracking-wider">Contrast</span>
-                <span className="font-mono text-[9px] text-zinc-400">{vizContrast.toFixed(1)}</span>
+                <label htmlFor="map-viz-contrast" className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Contrast</label>
+                <span className="font-mono text-[10px] text-foreground">{vizContrast.toFixed(1)}</span>
               </div>
               <input
+                id="map-viz-contrast"
                 type="range"
                 min="0.5"
                 max="3.0"
                 step="0.1"
                 value={vizContrast}
                 onChange={(e) => setVizContrast(parseFloat(e.target.value))}
-                className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-zinc-400"
+                className="h-9 w-full cursor-pointer accent-signal"
               />
             </div>
           </div>
@@ -1663,7 +1704,7 @@ export function MapboxGlobeView() {
       <CoordinateHUD map={mapReady ? mapRef.current : null} />
       <MeasurementTool map={mapReady ? mapRef.current : null} />
       <GeofenceTool map={mapReady ? mapRef.current : null} />
-      <div className="absolute top-3 left-[220px]">
+      <div className="absolute left-3 top-[108px] sm:left-[220px] sm:top-3">
         <MapScreenshot map={mapReady ? mapRef.current : null} />
       </div>
     </div>

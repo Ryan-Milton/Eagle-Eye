@@ -5,14 +5,6 @@ import { ECONOMIC_INDICATORS } from '@/lib/economic-client'
 import type { EconomicIndicator } from '@/lib/economic-client'
 import { PipelineError } from '@/components/ui/PipelineError'
 
-const INDICATOR_DOT_COLORS: Record<string, string> = {
-  'NY.GDP.MKTP.CD': '#34d399',
-  'NY.GDP.MKTP.KD.ZG': '#4ade80',
-  'FP.CPI.TOTL.ZG': '#fbbf24',
-  'SL.UEM.TOTL.ZS': '#f87171',
-  'BN.CAB.XOKA.CD': '#60a5fa',
-}
-
 function formatValue(value: number | null, indicatorId: string): string {
   if (value == null) return '—'
   if (indicatorId === 'NY.GDP.MKTP.CD' || indicatorId === 'BN.CAB.XOKA.CD') {
@@ -44,25 +36,27 @@ export function EconomicSection({ expanded, onToggle }: { expanded: boolean; onT
 
   return (
     <div>
-      <button
+      <div
+        role="button" tabIndex={0} aria-expanded={expanded}
         onClick={onToggle}
-        className="w-full flex items-center gap-2 px-3.5 py-2.5 border-b border-zinc-800 hover:bg-zinc-800/30 transition-colors"
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
+        className="flex min-h-10 w-full items-center gap-2 border-b border-line-muted px-3.5 transition-colors hover:bg-panel-raised"
       >
-        <span className="text-[11px] text-zinc-600">{expanded ? '▾' : '▸'}</span>
-        <span className="font-display text-[12px] font-semibold tracking-[2px] text-emerald-400 uppercase flex-1 text-left">Economic</span>
+        <span className="text-[11px] text-muted-foreground" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+        <span className="neo-kicker flex-1 text-left text-domain-economic">Economic</span>
         <PipelineError errors={errors} />
-        <span className={cn('inline-block w-1.5 h-1.5 rounded-full mr-1', hasData ? 'bg-emerald-400' : 'bg-zinc-600')} />
-        <span className="font-mono text-[11px] text-zinc-500">{count}</span>
-      </button>
+        <span className={cn('neo-data text-[9px] uppercase', hasData ? 'text-success' : 'text-muted-foreground')}>{hasData ? 'Ready' : 'Idle'}</span>
+        <span className="neo-data text-[11px] text-muted-foreground">{count}</span>
+      </div>
 
       {expanded && (
-        <div className="border-b border-zinc-800">
+        <div className="border-b border-line-muted bg-background">
           {/* Indicator selector */}
-          <div className="px-3 py-2 border-b border-zinc-800/40">
+          <div className="border-b border-line-muted p-3">
             <select
               value={selectedIndicator}
               onChange={(e) => setSelectedIndicator(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 font-mono text-[11px] text-zinc-300"
+              className="min-h-9 w-full border border-input bg-background px-2 font-mono text-[11px] text-foreground outline-none focus:border-focus"
             >
               {ECONOMIC_INDICATORS.map(ind => (
                 <option key={ind.id} value={ind.id}>{ind.name}</option>
@@ -71,23 +65,23 @@ export function EconomicSection({ expanded, onToggle }: { expanded: boolean; onT
           </div>
 
           {/* Country list for selected indicator */}
-          <div className="max-h-[300px] overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
+          <div className="neo-scrollbar max-h-[300px] overflow-y-auto">
             {(() => {
               const entries = byIndicator.get(selectedIndicator) ?? []
               const sorted = [...entries].sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
-              const dotColor = INDICATOR_DOT_COLORS[selectedIndicator] ?? '#34d399'
+              const dotColor = 'var(--domain-economic)'
 
               return sorted.slice(0, 200).map(entry => (
                 <div
                   key={entry.id}
-                  className="w-full flex items-center gap-2 pl-4 pr-3 py-1.5 text-left border-b border-zinc-800/20"
+                  className="flex min-h-9 w-full items-center gap-2 border-b border-line-muted py-1.5 pl-4 pr-3 text-left"
                 >
-                  <span className="inline-block w-[6px] h-[6px] rounded-full flex-shrink-0" style={{ backgroundColor: dotColor }} />
+                  <span className="inline-block size-2 flex-shrink-0 border border-domain-economic" style={{ backgroundColor: dotColor }} />
                   <div className="flex-1 min-w-0">
-                    <div className="font-mono text-[11px] text-zinc-400 truncate">{entry.country}</div>
-                    <div className="font-mono text-[10px] text-zinc-600">{entry.countryCode} · {entry.year}</div>
+                    <div className="truncate font-mono text-[11px] text-foreground">{entry.country}</div>
+                    <div className="font-mono text-[10px] text-muted-foreground">{entry.countryCode} · {entry.year}</div>
                   </div>
-                  <span className="font-mono text-[11px] text-zinc-300 flex-shrink-0">
+                  <span className="neo-data flex-shrink-0 text-[11px] text-foreground">
                     {formatValue(entry.value, entry.indicatorId)}
                   </span>
                 </div>

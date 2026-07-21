@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { useSatelliteStore } from '@/stores/satellite-store'
 import { useVesselStore } from '@/stores/vessel-store'
@@ -15,7 +15,11 @@ import { useSelectionStore } from '@/stores/selection-store'
 import { useAppStore } from '@/stores/app-store'
 import { exportCSV, exportGeoJSON } from '@/lib/export'
 import { PieChart, Pie, Cell, BarChart, Bar, AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts'
-import { DOMAIN_HEX_COLORS, CHART_TOOLTIP_STYLE, activeBarGrow } from '@/lib/chart-theme'
+import { DOMAIN_HEX_COLORS, CHART_TOOLTIP_STYLE, CHART_BAR_STYLE, activeBarGrow } from '@/lib/chart-theme'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Stat } from '@/components/ui/stat'
+import { AnalysisChartRegion, AnalysisPanel, AnalysisSectionTitle } from './shared/AnalysisPrimitives'
 
 interface UnifiedEntity {
   id: string
@@ -32,20 +36,6 @@ interface UnifiedEntity {
 type SortField = 'name' | 'domain' | 'lastUpdate' | 'speed'
 type SortDir = 'asc' | 'desc'
 
-const DOMAIN_COLORS: Record<string, string> = {
-  satellite: 'text-orange-400',
-  vessel: 'text-cyan-400',
-  flight: 'text-yellow-400',
-  weather: 'text-green-400',
-  news: 'text-rose-400',
-  conflict: 'text-red-400',
-  cyber: 'text-purple-400',
-  osint: 'text-teal-400',
-  port: 'text-blue-400',
-  rf: 'text-violet-400',
-  economic: 'text-emerald-400',
-}
-
 const DOMAIN_LABELS: Record<string, string> = {
   satellite: 'SAT',
   vessel: 'AIS',
@@ -60,7 +50,7 @@ const DOMAIN_LABELS: Record<string, string> = {
   economic: 'ECON',
 }
 
-const ROW_HEIGHT = 32
+const DEFAULT_ROW_HEIGHT = 36
 const OVERSCAN = 10
 
 export function ObjectsView() {
@@ -70,6 +60,9 @@ export function ObjectsView() {
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const scrollRef = useRef<HTMLDivElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
+  const [viewportHeight, setViewportHeight] = useState(0)
+  const [rowHeight, setRowHeight] = useState(DEFAULT_ROW_HEIGHT)
+  const [renderTime] = useState(Date.now)
 
   // Store data
   const { toggles, getPositions, getSatellites, version: satVersion } = useSatelliteStore()
@@ -104,7 +97,7 @@ export function ObjectsView() {
           lon: pos?.lon ?? 0,
           speed: pos ? pos.velocity : null,
           magnitude: null,
-          lastUpdate: Date.now(),
+          lastUpdate: renderTime,
         })
       }
     }
@@ -250,7 +243,7 @@ export function ObjectsView() {
     }
 
     return entities
-  }, [satVersion, vesselVersion, flightVersion, weatherVersion, newsVersion, conflictVersion, cyberVersion, osintVersion, portVersion, rfVersion, econVersion, toggles, getSatellites, getPositions, vessels, flights, weatherEvents, newsEvents, conflictEvents, cyberEvents, osintPosts, ports, rfSpots, econIndicators])
+  }, [satVersion, vesselVersion, flightVersion, weatherVersion, newsVersion, conflictVersion, cyberVersion, osintVersion, portVersion, rfVersion, econVersion, toggles, getSatellites, getPositions, vessels, flights, weatherEvents, newsEvents, conflictEvents, cyberEvents, osintPosts, ports, rfSpots, econIndicators, renderTime])
 
   const filteredEntities = useMemo(() => {
     let list = allEntities
@@ -282,7 +275,7 @@ export function ObjectsView() {
     }
     return Object.entries(counts)
       .filter(([, count]) => count > 0)
-      .map(([domain, count]) => ({ domain, count, fill: DOMAIN_HEX_COLORS[domain] || '#71717a' }))
+      .map(([domain, count]) => ({ domain, count, fill: DOMAIN_HEX_COLORS[domain] || 'var(--muted-foreground)' }))
   }, [allEntities])
 
   const speedBuckets = useMemo(() => {
@@ -304,16 +297,15 @@ export function ObjectsView() {
   }, [filteredEntities])
 
   const updateTimeline = useMemo(() => {
-    const now = Date.now()
     const bins: { label: string; count: number }[] = []
     for (let i = 5; i >= 0; i--) {
-      const binStart = now - (i + 1) * 10000
-      const binEnd = now - i * 10000
+      const binStart = renderTime - (i + 1) * 10000
+      const binEnd = renderTime - i * 10000
       const count = filteredEntities.filter(e => e.lastUpdate >= binStart && e.lastUpdate < binEnd).length
       bins.push({ label: `${(i + 1) * 10}s`, count })
     }
     return bins
-  }, [filteredEntities])
+  }, [filteredEntities, renderTime])
 
   const handleSort = useCallback((field: SortField) => {
     if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -346,15 +338,31 @@ export function ObjectsView() {
     app.setActiveView('Globe')
   }, [])
 
-  // Virtual scrolling
-  const containerHeight = typeof window !== 'undefined' ? window.innerHeight - 46 - 34 : 600
-  const headerHeight = 168
-  const tableHeight = containerHeight - headerHeight
-  const totalHeight = filteredEntities.length * ROW_HEIGHT
-  const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN)
-  const endIdx = Math.min(filteredEntities.length, Math.ceil((scrollTop + tableHeight) / ROW_HEIGHT) + OVERSCAN)
+  // Virtual scrolling uses the rendered viewport and row metrics rather than shell offsets.
+  useEffect(() => {
+    const container = scrollRef.current
+    if (!container) return
+
+    const measure = () => {
+      setViewportHeight(container.clientHeight)
+      const row = container.querySelector<HTMLElement>('[data-virtual-row]')
+      if (row) setRowHeight(row.getBoundingClientRect().height || DEFAULT_ROW_HEIGHT)
+    }
+
+    const observer = new ResizeObserver(measure)
+    observer.observe(container)
+    const row = container.querySelector<HTMLElement>('[data-virtual-row]')
+    if (row) observer.observe(row)
+    measure()
+
+    return () => observer.disconnect()
+  }, [filteredEntities.length])
+
+  const totalHeight = filteredEntities.length * rowHeight
+  const startIdx = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN)
+  const endIdx = Math.min(filteredEntities.length, Math.ceil((scrollTop + viewportHeight) / rowHeight) + OVERSCAN)
   const visibleEntities = filteredEntities.slice(startIdx, endIdx)
-  const offsetY = startIdx * ROW_HEIGHT
+  const offsetY = startIdx * rowHeight
 
   const handleScroll = useCallback(() => {
     if (scrollRef.current) setScrollTop(scrollRef.current.scrollTop)
@@ -371,49 +379,51 @@ export function ObjectsView() {
   }, [filteredEntities])
 
   return (
-    <div className="fixed top-[46px] left-64 right-[272px] bottom-[34px] bg-zinc-950 flex flex-col">
+    <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       {/* Toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-zinc-800 flex-shrink-0">
-        <input
+      <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-line bg-panel px-3 py-2 sm:px-4">
+        <Input
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Filter entities..."
-          className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 font-mono text-[12px] text-zinc-300 w-48 focus:outline-none focus:border-orange-800"
+          className="min-h-9 w-full py-1 text-xs sm:w-52"
         />
-        <div className="flex gap-1 ml-2">
+        <div className="flex max-w-full gap-px overflow-x-auto border border-line-muted bg-line-muted">
           {domains.map(d => (
             <button
+              type="button"
               key={d}
               onClick={() => toggleDomainFilter(d)}
               className={cn(
-                'px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider border transition-colors',
+                'neo-kicker min-h-8 shrink-0 border-0 px-2 transition-colors focus-visible:outline-focus',
                 domainFilter.has(d)
-                  ? `${DOMAIN_COLORS[d]} border-current bg-current/10`
+                  ? 'bg-signal text-signal-foreground'
                   : domainFilter.size === 0
-                    ? `${DOMAIN_COLORS[d]} border-transparent`
-                    : 'text-zinc-600 border-transparent',
+                    ? 'bg-panel text-foreground hover:bg-panel-raised'
+                    : 'bg-panel text-muted-foreground hover:text-foreground',
               )}
+              style={!domainFilter.has(d) && domainFilter.size === 0 ? { color: DOMAIN_HEX_COLORS[d] } : undefined}
             >
               {DOMAIN_LABELS[d]}
             </button>
           ))}
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <button onClick={handleExportCSV} className="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded border border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500 transition-colors">CSV</button>
-          <button onClick={handleExportGeoJSON} className="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded border border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500 transition-colors">GeoJSON</button>
-          <span className="font-mono text-[11px] text-zinc-500">
+          <Button type="button" variant="outline" size="sm" onClick={handleExportCSV}>CSV</Button>
+          <Button type="button" variant="outline" size="sm" onClick={handleExportGeoJSON}>GeoJSON</Button>
+          <span className="neo-data hidden text-xs text-muted-foreground sm:inline">
             {filteredEntities.length.toLocaleString()} entities
           </span>
         </div>
       </div>
 
       {/* Summary Strip */}
-      <div className="grid grid-cols-4 gap-3 px-4 py-2 border-b border-zinc-800 flex-shrink-0">
+      <div className="neo-scrollbar grid flex-shrink-0 auto-cols-[minmax(220px,1fr)] grid-flow-col gap-2 overflow-x-auto border-b border-line bg-background p-2 sm:grid-flow-row sm:grid-cols-2 xl:grid-cols-4">
         {/* Domain Distribution */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded p-2">
-          <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Domain Distribution</span>
-          <div style={{ height: 60, minWidth: 0 }}>
+        <AnalysisPanel>
+          <AnalysisSectionTitle className="m-2">Domain Distribution</AnalysisSectionTitle>
+          <AnalysisChartRegion className="h-20 p-1">
             <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <PieChart>
                 <Pie
@@ -438,13 +448,13 @@ export function ObjectsView() {
                 />
               </PieChart>
             </ResponsiveContainer>
-          </div>
-        </div>
+          </AnalysisChartRegion>
+        </AnalysisPanel>
 
         {/* Speed Distribution */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded p-2">
-          <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Speed Distribution</span>
-          <div style={{ height: 60, minWidth: 0 }}>
+        <AnalysisPanel>
+          <AnalysisSectionTitle className="m-2">Speed Distribution</AnalysisSectionTitle>
+          <AnalysisChartRegion className="h-20 p-1">
             <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <BarChart data={speedBuckets} margin={{ top: 4, right: 2, bottom: 0, left: 2 }}>
                 <Tooltip
@@ -452,98 +462,85 @@ export function ObjectsView() {
                   formatter={(value: number | undefined) => [value ?? 0, 'Count']}
                   labelFormatter={(label) => String(label)}
                 />
-                <Bar dataKey="count" fill="#f97316" radius={[2, 2, 0, 0]} activeBar={activeBarGrow}>
+                <Bar dataKey="count" fill="var(--signal)" {...CHART_BAR_STYLE} activeBar={activeBarGrow}>
                   {speedBuckets.map((_, i) => (
-                    <Cell key={i} fill="#f97316" />
+                    <Cell key={i} fill="var(--signal)" />
                   ))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          </div>
-        </div>
+          </AnalysisChartRegion>
+        </AnalysisPanel>
 
         {/* Recent Updates */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded p-2">
-          <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Recent Updates</span>
-          <div style={{ height: 60, minWidth: 0 }}>
+        <AnalysisPanel>
+          <AnalysisSectionTitle className="m-2">Recent Updates</AnalysisSectionTitle>
+          <AnalysisChartRegion className="h-20 p-1">
             <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <AreaChart data={updateTimeline} margin={{ top: 4, right: 2, bottom: 0, left: 2 }}>
                 <Tooltip
                   {...CHART_TOOLTIP_STYLE}
                   formatter={(value: number | undefined) => [value ?? 0, 'Updates']}
                 />
-                <defs>
-                  <linearGradient id="updateFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#f97316" stopOpacity={0.3} />
-                    <stop offset="100%" stopColor="#f97316" stopOpacity={0.05} />
-                  </linearGradient>
-                </defs>
                 <Area
                   type="monotone"
                   dataKey="count"
-                  stroke="#f97316"
+                  stroke="var(--signal)"
                   strokeWidth={1.5}
-                  fill="url(#updateFill)"
+                  fill="var(--signal)"
+                  fillOpacity={0.12}
                 />
               </AreaChart>
             </ResponsiveContainer>
-          </div>
-        </div>
+          </AnalysisChartRegion>
+        </AnalysisPanel>
 
         {/* Count Display */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded p-2 flex flex-col items-center justify-center">
-          <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Filtered / Total</span>
-          <div className="flex items-baseline gap-1 mt-1">
-            <span className="font-mono text-[22px] font-bold text-orange-400 leading-none">
-              {filteredEntities.length.toLocaleString()}
-            </span>
-            <span className="font-mono text-[12px] text-zinc-600">/</span>
-            <span className="font-mono text-[14px] text-zinc-400 leading-none">
-              {allEntities.length.toLocaleString()}
-            </span>
+        <AnalysisPanel className="flex items-center p-4">
+          <Stat label="Filtered / Total" value={filteredEntities.length.toLocaleString()} detail={`/ ${allEntities.length.toLocaleString()} indexed`} />
+        </AnalysisPanel>
+      </div>
+
+      <div className="neo-scrollbar min-h-0 flex-1 overflow-x-auto bg-panel">
+        <div className="flex h-full min-w-[720px] flex-col">
+          {/* Header */}
+          <div className="neo-kicker flex h-9 flex-shrink-0 items-center border-b border-line bg-panel-subtle px-4 text-muted-foreground">
+            <button type="button" onClick={() => handleSort('domain')} className="w-14 text-left hover:text-foreground">Type</button>
+            <button type="button" onClick={() => handleSort('name')} className="flex-1 text-left hover:text-foreground">Name / ID</button>
+            <span className="w-20 text-right">Lat</span>
+            <span className="w-20 text-right">Lon</span>
+            <button type="button" onClick={() => handleSort('speed')} className="w-20 text-right hover:text-foreground">Spd/Mag</button>
+            <button type="button" onClick={() => handleSort('lastUpdate')} className="w-20 text-right hover:text-foreground">Updated</button>
           </div>
-        </div>
-      </div>
 
-      {/* Header */}
-      <div className="flex items-center px-4 h-8 border-b border-zinc-800 flex-shrink-0 font-mono text-[10px] text-zinc-500 uppercase tracking-wider">
-        <button onClick={() => handleSort('domain')} className="w-12 text-left hover:text-zinc-300">Type</button>
-        <button onClick={() => handleSort('name')} className="flex-1 text-left hover:text-zinc-300">Name / ID</button>
-        <span className="w-20 text-right">Lat</span>
-        <span className="w-20 text-right">Lon</span>
-        <button onClick={() => handleSort('speed')} className="w-16 text-right hover:text-zinc-300">Spd/Mag</button>
-        <button onClick={() => handleSort('lastUpdate')} className="w-20 text-right hover:text-zinc-300">Updated</button>
-      </div>
-
-      {/* Virtual scrolling table */}
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700"
-      >
-        <div style={{ height: totalHeight, position: 'relative' }}>
-          <div style={{ transform: `translateY(${offsetY}px)` }}>
+          {/* Virtual scrolling table */}
+          <div ref={scrollRef} onScroll={handleScroll} className="neo-scrollbar min-h-0 flex-1 overflow-y-auto">
+            <div style={{ height: totalHeight, position: 'relative' }}>
+              <div style={{ transform: `translateY(${offsetY}px)` }}>
             {visibleEntities.map(entity => (
               <button
+                type="button"
                 key={entity.id}
+                data-virtual-row
                 onClick={() => handleSelect(entity)}
-                className="flex items-center px-4 w-full text-left hover:bg-zinc-800/50 transition-colors border-b border-zinc-800/20"
-                style={{ height: ROW_HEIGHT }}
+                className="flex h-9 w-full items-center border-b border-line-muted px-4 text-left transition-colors hover:bg-signal hover:text-signal-foreground"
               >
-                <span className={cn('w-12 font-mono text-[10px] uppercase tracking-wider', DOMAIN_COLORS[entity.domain])}>
+                <span className="neo-kicker w-14" style={{ color: DOMAIN_HEX_COLORS[entity.domain] }}>
                   {DOMAIN_LABELS[entity.domain]}
                 </span>
-                <span className="flex-1 font-mono text-[11px] text-zinc-300 truncate">{entity.name}</span>
-                <span className="w-20 font-mono text-[11px] text-zinc-500 text-right">{entity.lat.toFixed(2)}</span>
-                <span className="w-20 font-mono text-[11px] text-zinc-500 text-right">{entity.lon.toFixed(2)}</span>
-                <span className="w-16 font-mono text-[11px] text-zinc-500 text-right">
+                <span className="neo-data flex-1 truncate text-xs">{entity.name}</span>
+                <span className="neo-data w-20 text-right text-xs text-muted-foreground">{entity.lat.toFixed(2)}</span>
+                <span className="neo-data w-20 text-right text-xs text-muted-foreground">{entity.lon.toFixed(2)}</span>
+                <span className="neo-data w-20 text-right text-xs text-muted-foreground">
                   {entity.speed !== null ? entity.speed.toFixed(0) : entity.magnitude !== null ? entity.magnitude.toFixed(1) : '—'}
                 </span>
-                <span className="w-20 font-mono text-[11px] text-zinc-600 text-right">
-                  {Math.round((Date.now() - entity.lastUpdate) / 1000)}s
+                <span className="neo-data w-20 text-right text-xs text-muted-foreground">
+                  {Math.round((renderTime - entity.lastUpdate) / 1000)}s
                 </span>
               </button>
             ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>

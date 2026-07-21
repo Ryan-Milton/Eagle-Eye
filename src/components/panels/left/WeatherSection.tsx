@@ -2,7 +2,6 @@ import { useState, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { WEATHER_EVENT_TYPES, WEATHER_EVENT_LABELS } from '@/types'
 import type { WeatherEvent, WeatherEventType } from '@/types'
-import { WEATHER_TYPE_COLORS, WEATHER_TYPE_DOT_COLORS } from '@/lib/colors'
 import { SourceBadge } from '@/components/ui/SourceBadge'
 import { ConfidencePip } from '@/components/ui/ConfidencePip'
 import { computeConfidence } from '@/lib/confidence'
@@ -53,54 +52,56 @@ export function WeatherSection({ expanded, onToggle }: { expanded: boolean; onTo
 
   return (
     <div>
-      <button
+      <div
+        role="button" tabIndex={0} aria-expanded={expanded}
         onClick={onToggle}
-        className="w-full flex items-center gap-2 px-3.5 py-2.5 border-b border-zinc-800 hover:bg-zinc-800/30 transition-colors"
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
+        className="flex min-h-10 w-full items-center gap-2 border-b border-line-muted px-3.5 transition-colors hover:bg-panel-raised"
       >
-        <span className="text-[11px] text-zinc-600">{expanded ? '▾' : '▸'}</span>
-        <span className="font-display text-[12px] font-semibold tracking-[2px] text-green-400 uppercase flex-1 text-left">Weather & Events</span>
+        <span className="text-[11px] text-muted-foreground" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+        <span className="neo-kicker flex-1 text-left text-domain-weather">Weather & Events</span>
         <PipelineError errors={errors} />
-        <span className={cn('inline-block w-1.5 h-1.5 rounded-full mr-1', hasData ? 'bg-green-400' : 'bg-zinc-600')} />
-        <span className="font-mono text-[11px] text-zinc-500">{count}</span>
+        <span className={cn('neo-data text-[9px] uppercase', hasData ? 'text-success' : 'text-muted-foreground')}>{hasData ? 'Live' : 'Idle'}</span>
+        <span className="neo-data text-[11px] text-muted-foreground">{count}</span>
         <MasterToggle
           allOn={allOn}
           noneOn={noneOn}
           onToggle={() => allOn ? disableAllTypes() : enableAllTypes()}
         />
-      </button>
+      </div>
 
       {expanded && (
-        <div className="border-b border-zinc-800">
+        <div className="border-b border-line-muted bg-background">
           {WEATHER_EVENT_TYPES.map(type => {
             const typeEvents = eventsByType.get(type) ?? []
             const isOn = typeToggles.get(type) ?? true
             const isExpanded = expandedTypes.has(type)
-            const dotColor = WEATHER_TYPE_DOT_COLORS[type] ?? '#a1a1aa'
+            const dotColor = 'var(--domain-weather)'
 
             const sorted = typeEvents.sort((a, b) => b.time - a.time)
 
             return (
               <div key={type}>
-                <div className="flex items-center border-b border-zinc-800/40">
+                <div className="flex items-center border-b border-line-muted">
                   <button
                     onClick={() => isOn && typeEvents.length > 0 && toggleTypeExpand(type)}
                     className={cn(
-                      'flex-1 flex items-center gap-2 pl-4 pr-1 py-1.5 text-left transition-colors',
-                      isOn ? 'hover:bg-zinc-800/30' : '',
+                      'flex min-h-9 flex-1 items-center gap-2 py-1 pl-4 pr-1 text-left transition-colors',
+                      isOn ? 'hover:bg-panel-raised' : '',
                     )}
                   >
-                    <span className="inline-block w-[6px] h-[6px] rounded-full flex-shrink-0" style={{ backgroundColor: isOn ? dotColor : '#3f3f46' }} />
-                    <span className={cn('font-display text-[12px] font-medium tracking-wide flex-1', isOn ? 'text-zinc-300' : 'text-zinc-600')}>
+                    <span className="inline-block size-2 flex-shrink-0 border border-domain-weather" style={{ backgroundColor: isOn ? dotColor : 'transparent' }} />
+                    <span className={cn('flex-1 font-mono text-xs', isOn ? 'text-foreground' : 'text-muted-foreground')}>
                       {WEATHER_EVENT_LABELS[type]}
                     </span>
-                    <span className="font-mono text-[11px] text-zinc-600">{typeEvents.length}</span>
-                    {isOn && typeEvents.length > 0 && <span className="text-[11px] text-zinc-600">{isExpanded ? '▾' : '▸'}</span>}
+                    <span className="neo-data text-[11px] text-muted-foreground">{typeEvents.length}</span>
+                    {isOn && typeEvents.length > 0 && <span className="text-[11px] text-muted-foreground">{isExpanded ? '▾' : '▸'}</span>}
                   </button>
-                  <TypeToggle on={isOn} color={dotColor} onClick={() => toggleType(type)} />
+                  <TypeToggle on={isOn} color={dotColor} label={WEATHER_EVENT_LABELS[type]} onClick={() => toggleType(type)} />
                 </div>
 
                 {isExpanded && isOn && sorted.length > 0 && (
-                  <div className="max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
+                  <div className="neo-scrollbar max-h-[200px] overflow-y-auto">
                     {sorted.slice(0, 200).map(event => {
                       const isSelected = event.id === selectedEventId
                       return (
@@ -108,17 +109,17 @@ export function WeatherSection({ expanded, onToggle }: { expanded: boolean; onTo
                           key={event.id}
                           onClick={() => selectEvent(isSelected ? null : event.id)}
                           className={cn(
-                            'w-full flex items-center gap-2 pl-7 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
-                            isSelected ? 'bg-green-950/20 border-l-2 border-l-green-500' : 'hover:bg-zinc-800/30',
+                            'flex min-h-9 w-full items-center gap-2 border-b border-line-muted py-1 pl-7 pr-3 text-left transition-colors',
+                            isSelected ? 'border-l-2 border-l-signal bg-signal text-signal-foreground' : 'hover:bg-panel-raised',
                           )}
                         >
                           <div className="flex-1 min-w-0">
-                            <div className="font-mono text-[11px] text-zinc-400 truncate">{event.title}</div>
+                            <div className="truncate font-mono text-[11px]">{event.title}</div>
                             <div className="flex items-center gap-1.5 mt-0.5">
                               {event.magnitude !== null && (
                                 <span className={cn(
-                                  'font-display text-[9px] font-semibold tracking-[0.5px] uppercase px-1 py-px rounded-sm border',
-                                  WEATHER_TYPE_COLORS[event.type] || WEATHER_TYPE_COLORS.alert,
+                                  'border px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider',
+                                  isSelected ? 'border-signal-foreground/50' : 'border-domain-weather text-domain-weather',
                                 )}>
                                   M{event.magnitude.toFixed(1)}
                                 </span>
@@ -128,13 +129,13 @@ export function WeatherSection({ expanded, onToggle }: { expanded: boolean; onTo
                             </div>
                           </div>
                           <div className="flex flex-col items-end flex-shrink-0">
-                            <span className="font-mono text-[11px] text-zinc-600">{timeAgo(event.time)}</span>
+                            <span className={cn('neo-data text-[11px]', isSelected ? 'text-signal-foreground/70' : 'text-muted-foreground')}>{timeAgo(event.time)}</span>
                           </div>
                         </button>
                       )
                     })}
                     {sorted.length > 200 && (
-                      <div className="px-7 py-1 font-mono text-[11px] text-zinc-600">+{sorted.length - 200} more...</div>
+                      <div className="px-7 py-2 font-mono text-[11px] text-muted-foreground">+{sorted.length - 200} more...</div>
                     )}
                   </div>
                 )}

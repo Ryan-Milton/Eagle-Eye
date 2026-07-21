@@ -12,7 +12,10 @@ import { usePortStore } from '@/stores/port-store'
 import { useRFStore } from '@/stores/rf-store'
 import { useEconomicStore } from '@/stores/economic-store'
 import { useAlertStore } from '@/stores/alert-store'
-import { DOMAIN_HEX_COLORS, CHART_TOOLTIP_STYLE, activeBarGrow } from '@/lib/chart-theme'
+import { DOMAIN_HEX_COLORS, CHART_TOOLTIP_STYLE, CHART_BAR_STYLE, activeBarGrow } from '@/lib/chart-theme'
+import { Button } from '@/components/ui/button'
+import { Stat } from '@/components/ui/stat'
+import { AnalysisChartRegion, AnalysisHeader, AnalysisPanel, AnalysisSectionTitle } from './shared/AnalysisPrimitives'
 import {
   ResponsiveContainer,
   RadarChart,
@@ -40,17 +43,28 @@ function groupBy<T>(map: Map<string | number, T>, field: keyof T): { name: strin
 }
 
 // ─── Mini chart colors (cycle through a palette) ──────────────────────────
-const MINI_COLORS = ['#f97316', '#22d3ee', '#eab308', '#4ade80', '#fb7185', '#c084fc', '#2dd4bf', '#60a5fa', '#a78bfa', '#34d399']
+const MINI_COLORS = [
+  DOMAIN_HEX_COLORS.satellite,
+  DOMAIN_HEX_COLORS.vessel,
+  DOMAIN_HEX_COLORS.flight,
+  DOMAIN_HEX_COLORS.weather,
+  DOMAIN_HEX_COLORS.news,
+  DOMAIN_HEX_COLORS.cyber,
+  DOMAIN_HEX_COLORS.osint,
+  DOMAIN_HEX_COLORS.port,
+  DOMAIN_HEX_COLORS.rf,
+  DOMAIN_HEX_COLORS.economic,
+]
 
 // ─── ReportSection local component ─────────────────────────────────────────
 function ReportSection({ title, content, chart }: { title: string; content: string; chart?: ReactNode }) {
   return (
     <div className="mb-4">
-      <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-500 uppercase mb-2">{title}</div>
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-        <p className="font-mono text-[12px] text-zinc-300 leading-relaxed">{content}</p>
-        {chart && <div className="mt-3 border-t border-zinc-800 pt-3">{chart}</div>}
-      </div>
+      <AnalysisPanel>
+        <AnalysisSectionTitle className="m-4">{title}</AnalysisSectionTitle>
+        <p className="border-t border-line-muted p-4 font-mono text-xs leading-relaxed text-foreground">{content}</p>
+        {chart ? <AnalysisChartRegion>{chart}</AnalysisChartRegion> : null}
+      </AnalysisPanel>
     </div>
   )
 }
@@ -79,9 +93,9 @@ function MiniBar({ data, color }: { data: { name: string; value: number }[]; col
     <ResponsiveContainer width="100%" height={Math.max(120, data.length * 24)}>
       <BarChart data={data} layout="vertical" margin={{ left: 0, right: 8, top: 0, bottom: 0 }}>
         <XAxis type="number" hide />
-        <YAxis type="category" dataKey="name" width={80} tick={{ fill: '#71717a', fontFamily: '"DM Mono", monospace', fontSize: 10 }} axisLine={false} tickLine={false} />
+        <YAxis type="category" dataKey="name" width={80} tick={{ fill: 'var(--muted-foreground)', fontFamily: '"IBM Plex Mono", monospace', fontSize: 10 }} axisLine={false} tickLine={false} />
         <Tooltip {...CHART_TOOLTIP_STYLE} />
-        <Bar dataKey="value" fill={color} radius={[0, 3, 3, 0]} barSize={14} activeBar={activeBarGrow} />
+        <Bar dataKey="value" fill={color} {...CHART_BAR_STYLE} barSize={14} activeBar={activeBarGrow} />
       </BarChart>
     </ResponsiveContainer>
   )
@@ -136,10 +150,10 @@ export function ReportsView() {
     // Threat level calculation
     const threatScore = (criticalAlerts * 10 + warningAlerts * 3 + cyberHighSeverity * 2 + conflictCount) / Math.max(totalEntities, 1)
     let threatLevel: { label: string; color: string }
-    if (threatScore < 0.5) threatLevel = { label: 'LOW', color: 'text-green-400' }
-    else if (threatScore < 2) threatLevel = { label: 'MODERATE', color: 'text-yellow-400' }
-    else if (threatScore < 5) threatLevel = { label: 'HIGH', color: 'text-orange-400' }
-    else threatLevel = { label: 'CRITICAL', color: 'text-red-400' }
+    if (threatScore < 0.5) threatLevel = { label: 'LOW', color: 'text-success' }
+    else if (threatScore < 2) threatLevel = { label: 'MODERATE', color: 'text-warning' }
+    else if (threatScore < 5) threatLevel = { label: 'HIGH', color: 'text-signal' }
+    else threatLevel = { label: 'CRITICAL', color: 'text-danger' }
 
     // Active domains count
     const domainCounts = [satStats.enabledCount, vesselCount, flightCount, weatherCount, newsCount, conflictCount, cyberCount, osintCount, portCount, rfCount, econCount]
@@ -227,63 +241,44 @@ export function ReportsView() {
     URL.revokeObjectURL(url)
   }, [report, alerts, unackCount, satStats, vesselCount, vesselConnected, flightCount, flightConnected, weatherCount, newsCount, conflictCount, cyberCount, osintCount, portCount, rfCount, econCount])
 
-  const ALERT_COLORS: Record<string, string> = { Info: '#60a5fa', Warning: '#eab308', Critical: '#ef4444' }
+  const ALERT_COLORS: Record<string, string> = { Info: 'var(--info)', Warning: 'var(--warning)', Critical: 'var(--danger)' }
 
   return (
-    <div className="fixed top-[46px] left-64 right-[272px] bottom-[34px] bg-zinc-950 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700 p-6">
-      <div className="max-w-4xl mx-auto">
-
-        {/* ─── Header ──────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <div className="font-display text-lg font-bold tracking-[3px] text-zinc-50 uppercase">Situational Awareness Report</div>
-            <div className="font-mono text-[12px] text-zinc-500 mt-1">Generated {report.generatedAt}</div>
-          </div>
-          <button
+    <div className="neo-scrollbar h-full min-h-0 overflow-y-auto bg-background text-foreground">
+      <AnalysisHeader
+        eyebrow="Analysis / Reports"
+        title="Situational Awareness Report"
+        detail={`Generated ${report.generatedAt}`}
+        action={(
+          <Button
+            type="button"
             onClick={handleExportMarkdown}
-            className="px-3 py-1.5 text-xs font-mono uppercase tracking-wider rounded border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-500 transition-colors"
+            variant="signal"
+            size="sm"
           >
             Export MD
-          </button>
-        </div>
+          </Button>
+        )}
+      />
+      <div className="mx-auto max-w-5xl p-3 sm:p-6">
 
         {/* ─── Stats Bar ───────────────────────────────────────────────── */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-6">
-          <div className="grid grid-cols-5 gap-4">
-            <div>
-              <div className="font-mono text-[10px] text-zinc-500 uppercase">Total Entities</div>
-              <div className="font-mono text-xl font-bold text-orange-400">{report.totalEntities.toLocaleString()}</div>
-            </div>
-            <div>
-              <div className="font-mono text-[10px] text-zinc-500 uppercase">Active Domains</div>
-              <div className="font-mono text-xl font-bold text-green-400">{report.activeDomains}</div>
-            </div>
-            <div>
-              <div className="font-mono text-[10px] text-zinc-500 uppercase">Alerts</div>
-              <div className="font-mono text-xl font-bold text-yellow-400">{alerts.length}</div>
-            </div>
-            <div>
-              <div className="font-mono text-[10px] text-zinc-500 uppercase">Critical</div>
-              <div className={`font-mono text-xl font-bold ${report.criticalAlerts > 0 ? 'text-red-400' : 'text-zinc-500'}`}>
-                {report.criticalAlerts}
-              </div>
-            </div>
-            <div>
-              <div className="font-mono text-[10px] text-zinc-500 uppercase">Threat Level</div>
-              <div className={`font-mono text-xl font-bold ${report.threatLevel.color}`}>
-                {report.threatLevel.label}
-              </div>
-            </div>
+        <AnalysisPanel className="mb-6 p-4">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5">
+            <Stat label="Total Entities" value={report.totalEntities.toLocaleString()} />
+            <Stat label="Active Domains" value={report.activeDomains} detail="of 11 monitored" />
+            <Stat label="Alerts" value={alerts.length} detail={`${unackCount} unacknowledged`} />
+            <Stat label="Critical" value={<span className={report.criticalAlerts > 0 ? 'text-danger' : 'text-muted-foreground'}>{report.criticalAlerts}</span>} signal={report.criticalAlerts > 0} />
+            <Stat label="Threat Level" value={<span className={report.threatLevel.color}>{report.threatLevel.label}</span>} />
           </div>
-        </div>
+        </AnalysisPanel>
 
         {/* ─── Executive Summary + Radar ───────────────────────────────── */}
-        <div className="mb-4">
-          <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-500 uppercase mb-2">Executive Summary</div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-            <div className="flex gap-6">
+        <AnalysisPanel className="mb-4">
+          <AnalysisSectionTitle className="m-4">Executive Summary</AnalysisSectionTitle>
+          <div className="grid border-t border-line-muted lg:grid-cols-[1fr_18rem]">
               <div className="flex-1">
-                <p className="font-mono text-[12px] text-zinc-300 leading-relaxed">
+                <p className="p-4 font-mono text-xs leading-relaxed text-foreground">
                   Eagle Eye is currently tracking {report.totalEntities.toLocaleString()} entities across {report.activeDomains} intelligence domains.{' '}
                   {report.criticalAlerts > 0
                     ? `There are ${report.criticalAlerts} critical alerts requiring immediate attention.`
@@ -292,19 +287,18 @@ export function ReportsView() {
                   Threat level is assessed as <span className={`font-bold ${report.threatLevel.color}`}>{report.threatLevel.label}</span>.
                 </p>
               </div>
-              <div className="w-64 h-52 flex-shrink-0">
+              <AnalysisChartRegion className="h-56 border-l-0 lg:border-l">
                 <ResponsiveContainer width="100%" height="100%">
                   <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="70%">
-                    <PolarGrid stroke="#3f3f46" />
-                    <PolarAngleAxis dataKey="domain" tick={{ fill: '#a1a1aa', fontFamily: '"DM Mono", monospace', fontSize: 9 }} />
+                    <PolarGrid stroke="var(--line-muted)" />
+                    <PolarAngleAxis dataKey="domain" tick={{ fill: 'var(--muted-foreground)', fontFamily: '"IBM Plex Mono", monospace', fontSize: 9 }} />
                     <Radar dataKey="level" stroke={DOMAIN_HEX_COLORS.satellite} fill={DOMAIN_HEX_COLORS.satellite} fillOpacity={0.25} />
                     <Tooltip {...CHART_TOOLTIP_STYLE} />
                   </RadarChart>
                 </ResponsiveContainer>
-              </div>
-            </div>
+              </AnalysisChartRegion>
           </div>
-        </div>
+        </AnalysisPanel>
 
         {/* ─── Domain Report Sections ──────────────────────────────────── */}
         <ReportSection
@@ -372,49 +366,47 @@ export function ReportsView() {
         />
 
         {/* ─── Alert Summary ──────────────────────────────────────────── */}
-        <div className="mb-4">
-          <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-500 uppercase mb-2">Alert Summary</div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-            <div className="flex gap-6">
-              <div className="w-48 h-[120px] flex-shrink-0">
+        <AnalysisPanel className="mb-4">
+          <AnalysisSectionTitle className="m-4">Alert Summary</AnalysisSectionTitle>
+          <div className="grid border-t border-line-muted md:grid-cols-[14rem_1fr]">
+              <AnalysisChartRegion className="h-[150px] border-t-0 md:border-r">
                 {alertSeverityData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={alertSeverityData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={45} innerRadius={20} strokeWidth={0} fontSize={10}>
                         {alertSeverityData.map((entry) => (
-                          <Cell key={entry.name} fill={ALERT_COLORS[entry.name] || '#71717a'} />
+                          <Cell key={entry.name} fill={ALERT_COLORS[entry.name] || 'var(--muted-foreground)'} />
                         ))}
                       </Pie>
                       <Tooltip {...CHART_TOOLTIP_STYLE} />
                     </PieChart>
                   </ResponsiveContainer>
                 ) : (
-                  <div className="flex items-center justify-center h-full font-mono text-[11px] text-zinc-600">No alerts</div>
+                  <div className="neo-data flex h-full items-center justify-center text-xs text-muted-foreground">No alerts</div>
                 )}
-              </div>
-              <div className="flex-1">
-                <div className="font-mono text-[10px] text-zinc-500 uppercase mb-2">
+              </AnalysisChartRegion>
+              <div className="p-4">
+                <div className="neo-kicker mb-2 text-muted-foreground">
                   {alerts.length} total ({unackCount} unacknowledged)
                 </div>
                 {recentCriticalAlerts.length > 0 ? (
                   <div className="space-y-1.5">
                     {recentCriticalAlerts.map(a => (
                       <div key={a.id} className="flex items-start gap-2">
-                        <span className={`mt-0.5 inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${a.severity === 'critical' ? 'bg-red-400' : 'bg-yellow-400'}`} />
+                        <span className={`mt-0.5 inline-block size-1.5 flex-shrink-0 border border-current ${a.severity === 'critical' ? 'bg-danger text-danger' : 'bg-warning text-warning'}`} />
                         <div>
-                          <div className="font-mono text-[11px] text-zinc-300">{a.title}</div>
-                          <div className="font-mono text-[10px] text-zinc-600">{new Date(a.time).toISOString().slice(11, 19)}Z - {a.domain}</div>
+                          <div className="font-mono text-xs text-foreground">{a.title}</div>
+                          <div className="neo-data text-[10px] text-muted-foreground">{new Date(a.time).toISOString().slice(11, 19)}Z - {a.domain}</div>
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="font-mono text-[11px] text-zinc-600">No critical or warning alerts</div>
+                  <div className="neo-data text-xs text-muted-foreground">No critical or warning alerts</div>
                 )}
               </div>
-            </div>
           </div>
-        </div>
+        </AnalysisPanel>
 
       </div>
     </div>

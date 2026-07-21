@@ -1,7 +1,6 @@
 import { useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { CONSTELLATIONS } from '@/data/constellations'
-import { VESSEL_TYPE_COLORS, FLIGHT_TYPE_COLORS, WEATHER_TYPE_COLORS, WEATHER_TYPE_DOT_COLORS, NEWS_CATEGORY_COLORS, NEWS_CATEGORY_DOT_COLORS, CONFLICT_TYPE_COLORS, CONFLICT_TYPE_DOT_COLORS, CYBER_TYPE_COLORS } from '@/lib/colors'
 import { SourceBadge } from '@/components/ui/SourceBadge'
 import { useSatelliteStore } from '@/stores/satellite-store'
 import { useVesselStore } from '@/stores/vessel-store'
@@ -69,47 +68,46 @@ export function SearchResults({ query }: { query: string }) {
 
   return (
     <div>
-      <div className="px-3.5 py-1.5 border-b border-zinc-800 flex-shrink-0">
-        <span className="font-mono text-[11px] text-zinc-500">{totalResults} result{totalResults !== 1 ? 's' : ''}</span>
+      <div className="flex-shrink-0 border-b border-line-muted px-3.5 py-2">
+        <span className="neo-data text-[11px] text-muted-foreground">{totalResults} result{totalResults !== 1 ? 's' : ''}</span>
       </div>
 
       {/* Satellite results */}
       {searchResults.sats.length > 0 && (
         <div>
-          <div className="px-3.5 py-1.5 border-b border-zinc-800/60">
-            <span className="font-display text-[11px] font-semibold tracking-[1.5px] text-orange-400/70 uppercase">Satellites</span>
-            <span className="font-mono text-[11px] text-zinc-600 ml-2">{searchResults.sats.length}</span>
+          <div className="border-b border-line-muted bg-background px-3.5 py-2">
+            <span className="neo-kicker text-domain-satellite">Satellites</span>
+            <span className="neo-data ml-2 text-[11px] text-muted-foreground">{searchResults.sats.length}</span>
           </div>
           {searchResults.sats.slice(0, 100).map(({ sat, constellation, pos }) => {
             const isSelected = sat.noradId === selectedSatId
-            const colorHex = `#${constellation.color.toString(16).padStart(6, '0')}`
             return (
               <button
                 key={sat.noradId}
                 onClick={() => selectSatellite(isSelected ? null : sat.noradId)}
                 className={cn(
-                  'w-full flex items-center gap-2 pl-3.5 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
-                  isSelected ? 'bg-orange-950/20 border-l-2 border-l-orange-500' : 'hover:bg-zinc-800/30',
+                  'flex min-h-10 w-full items-center gap-2 border-b border-line-muted py-1 pl-3.5 pr-3 text-left transition-colors',
+                  isSelected ? 'border-l-2 border-l-signal bg-signal text-signal-foreground' : 'hover:bg-panel-raised',
                 )}
               >
-                <span className="inline-block w-[5px] h-[5px] rounded-full flex-shrink-0" style={{ backgroundColor: colorHex }} />
+                <span className="inline-block size-2 flex-shrink-0 border border-domain-satellite bg-domain-satellite" />
                 <div className="flex-1 min-w-0">
-                  <div className="font-mono text-[11px] text-zinc-400 truncate">{sat.name}</div>
+                  <div className="truncate font-mono text-[11px]">{sat.name}</div>
                   <div className="flex items-center gap-1.5">
-                    <span className="font-mono text-[10px] text-zinc-600">{sat.noradId}</span>
-                    <span className="font-mono text-[10px] text-zinc-700">{constellation.name}</span>
+                    <span className={cn('neo-data text-[10px]', isSelected ? 'text-signal-foreground/70' : 'text-muted-foreground')}>{sat.noradId}</span>
+                    <span className={cn('font-mono text-[10px]', isSelected ? 'text-signal-foreground/70' : 'text-muted-foreground')}>{constellation.name}</span>
                   </div>
                 </div>
                 {pos && (
                   <div className="flex flex-col items-end flex-shrink-0">
-                    <span className="font-mono text-[11px] text-zinc-600">{pos.alt.toFixed(0)} km</span>
+                    <span className={cn('neo-data text-[11px]', isSelected ? 'text-signal-foreground/70' : 'text-muted-foreground')}>{pos.alt.toFixed(0)} km</span>
                   </div>
                 )}
               </button>
             )
           })}
           {searchResults.sats.length > 100 && (
-            <div className="px-3.5 py-1 font-mono text-[11px] text-zinc-600">+{searchResults.sats.length - 100} more...</div>
+            <div className="px-3.5 py-2 font-mono text-[11px] text-muted-foreground">+{searchResults.sats.length - 100} more...</div>
           )}
         </div>
       )}
@@ -117,9 +115,9 @@ export function SearchResults({ query }: { query: string }) {
       {/* Vessel results */}
       {searchResults.vessels.length > 0 && (
         <div>
-          <div className="px-3.5 py-1.5 border-b border-zinc-800/60">
-            <span className="font-display text-[11px] font-semibold tracking-[1.5px] text-cyan-400/70 uppercase">Maritime</span>
-            <span className="font-mono text-[11px] text-zinc-600 ml-2">{searchResults.vessels.length}</span>
+          <div className="border-b border-line-muted bg-background px-3.5 py-2">
+            <span className="neo-kicker text-domain-vessel">Maritime</span>
+            <span className="neo-data ml-2 text-[11px] text-muted-foreground">{searchResults.vessels.length}</span>
           </div>
           {searchResults.vessels.slice(0, 200).map(vessel => {
             const isSelected = vessel.mmsi === selectedMmsi
@@ -128,30 +126,30 @@ export function SearchResults({ query }: { query: string }) {
                 key={vessel.mmsi}
                 onClick={() => selectVessel(isSelected ? null : vessel.mmsi)}
                 className={cn(
-                  'w-full flex items-center gap-2 pl-3.5 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
-                  isSelected ? 'bg-cyan-950/20 border-l-2 border-l-cyan-500' : 'hover:bg-zinc-800/30',
+                  'flex min-h-10 w-full items-center gap-2 border-b border-line-muted py-1 pl-3.5 pr-3 text-left transition-colors',
+                  isSelected ? 'border-l-2 border-l-signal bg-signal text-signal-foreground' : 'hover:bg-panel-raised',
                 )}
               >
                 <div className="flex-1 min-w-0">
-                  <div className="font-mono text-[11px] text-zinc-400 truncate">{vessel.name}</div>
+                  <div className="truncate font-mono text-[11px]">{vessel.name}</div>
                   <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="font-mono text-[10px] text-zinc-600">{vessel.mmsi}</span>
+                    <span className={cn('neo-data text-[10px]', isSelected ? 'text-signal-foreground/70' : 'text-muted-foreground')}>{vessel.mmsi}</span>
                     <span className={cn(
-                      'font-display text-[9px] font-semibold tracking-[0.5px] uppercase px-1 py-px rounded-sm border',
-                      VESSEL_TYPE_COLORS[vessel.type] || VESSEL_TYPE_COLORS.other,
+                      'border px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider',
+                      isSelected ? 'border-signal-foreground/50' : 'border-domain-vessel text-domain-vessel',
                     )}>
                       {vessel.type}
                     </span>
                   </div>
                 </div>
                 <div className="flex flex-col items-end flex-shrink-0">
-                  <span className="font-mono text-[11px] text-zinc-600">{vessel.speed.toFixed(1)} kn</span>
+                  <span className={cn('neo-data text-[11px]', isSelected ? 'text-signal-foreground/70' : 'text-muted-foreground')}>{vessel.speed.toFixed(1)} kn</span>
                 </div>
               </button>
             )
           })}
           {searchResults.vessels.length > 200 && (
-            <div className="px-3.5 py-1 font-mono text-[11px] text-zinc-600">+{searchResults.vessels.length - 200} more...</div>
+            <div className="px-3.5 py-2 font-mono text-[11px] text-muted-foreground">+{searchResults.vessels.length - 200} more...</div>
           )}
         </div>
       )}
@@ -159,9 +157,9 @@ export function SearchResults({ query }: { query: string }) {
       {/* Flight results */}
       {searchResults.flights.length > 0 && (
         <div>
-          <div className="px-3.5 py-1.5 border-b border-zinc-800/60">
-            <span className="font-display text-[11px] font-semibold tracking-[1.5px] text-yellow-400/70 uppercase">Aircraft</span>
-            <span className="font-mono text-[11px] text-zinc-600 ml-2">{searchResults.flights.length}</span>
+          <div className="border-b border-line-muted bg-background px-3.5 py-2">
+            <span className="neo-kicker text-domain-flight">Aircraft</span>
+            <span className="neo-data ml-2 text-[11px] text-muted-foreground">{searchResults.flights.length}</span>
           </div>
           {searchResults.flights.slice(0, 200).map(flight => {
             const isSelected = flight.icao24 === selectedIcao
@@ -170,30 +168,30 @@ export function SearchResults({ query }: { query: string }) {
                 key={flight.icao24}
                 onClick={() => selectFlight(isSelected ? null : flight.icao24)}
                 className={cn(
-                  'w-full flex items-center gap-2 pl-3.5 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
-                  isSelected ? 'bg-yellow-950/20 border-l-2 border-l-yellow-500' : 'hover:bg-zinc-800/30',
+                  'flex min-h-10 w-full items-center gap-2 border-b border-line-muted py-1 pl-3.5 pr-3 text-left transition-colors',
+                  isSelected ? 'border-l-2 border-l-signal bg-signal text-signal-foreground' : 'hover:bg-panel-raised',
                 )}
               >
                 <div className="flex-1 min-w-0">
-                  <div className="font-mono text-[11px] text-zinc-400 truncate">{flight.callsign}</div>
+                  <div className="truncate font-mono text-[11px]">{flight.callsign}</div>
                   <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="font-mono text-[10px] text-zinc-600">{flight.icao24.toUpperCase()}</span>
+                    <span className={cn('neo-data text-[10px]', isSelected ? 'text-signal-foreground/70' : 'text-muted-foreground')}>{flight.icao24.toUpperCase()}</span>
                     <span className={cn(
-                      'font-display text-[9px] font-semibold tracking-[0.5px] uppercase px-1 py-px rounded-sm border',
-                      FLIGHT_TYPE_COLORS[flight.type] || FLIGHT_TYPE_COLORS.other,
+                      'border px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider',
+                      isSelected ? 'border-signal-foreground/50' : 'border-domain-flight text-domain-flight',
                     )}>
                       {flight.type}
                     </span>
                   </div>
                 </div>
                 <div className="flex flex-col items-end flex-shrink-0">
-                  <span className="font-mono text-[11px] text-zinc-600">FL{Math.round(flight.altitude * 3.28084 / 100)}</span>
+                  <span className={cn('neo-data text-[11px]', isSelected ? 'text-signal-foreground/70' : 'text-muted-foreground')}>FL{Math.round(flight.altitude * 3.28084 / 100)}</span>
                 </div>
               </button>
             )
           })}
           {searchResults.flights.length > 200 && (
-            <div className="px-3.5 py-1 font-mono text-[11px] text-zinc-600">+{searchResults.flights.length - 200} more...</div>
+            <div className="px-3.5 py-2 font-mono text-[11px] text-muted-foreground">+{searchResults.flights.length - 200} more...</div>
           )}
         </div>
       )}
@@ -201,30 +199,29 @@ export function SearchResults({ query }: { query: string }) {
       {/* Weather event results */}
       {searchResults.events.length > 0 && (
         <div>
-          <div className="px-3.5 py-1.5 border-b border-zinc-800/60">
-            <span className="font-display text-[11px] font-semibold tracking-[1.5px] text-green-400/70 uppercase">Weather & Events</span>
-            <span className="font-mono text-[11px] text-zinc-600 ml-2">{searchResults.events.length}</span>
+          <div className="border-b border-line-muted bg-background px-3.5 py-2">
+            <span className="neo-kicker text-domain-weather">Weather & Events</span>
+            <span className="neo-data ml-2 text-[11px] text-muted-foreground">{searchResults.events.length}</span>
           </div>
           {searchResults.events.slice(0, 200).map(event => {
             const isSelected = event.id === selectedEventId
-            const dotColor = WEATHER_TYPE_DOT_COLORS[event.type] ?? '#a1a1aa'
             return (
               <button
                 key={event.id}
                 onClick={() => selectEvent(isSelected ? null : event.id)}
                 className={cn(
-                  'w-full flex items-center gap-2 pl-3.5 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
-                  isSelected ? 'bg-green-950/20 border-l-2 border-l-green-500' : 'hover:bg-zinc-800/30',
+                  'flex min-h-10 w-full items-center gap-2 border-b border-line-muted py-1 pl-3.5 pr-3 text-left transition-colors',
+                  isSelected ? 'border-l-2 border-l-signal bg-signal text-signal-foreground' : 'hover:bg-panel-raised',
                 )}
               >
-                <span className="inline-block w-[5px] h-[5px] rounded-full flex-shrink-0" style={{ backgroundColor: dotColor }} />
+                <span className="inline-block size-2 flex-shrink-0 border border-domain-weather bg-domain-weather" />
                 <div className="flex-1 min-w-0">
-                  <div className="font-mono text-[11px] text-zinc-400 truncate">{event.title}</div>
+                  <div className="truncate font-mono text-[11px]">{event.title}</div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <SourceBadge source={event.source} />
                     <span className={cn(
-                      'font-display text-[9px] font-semibold tracking-[0.5px] uppercase px-1 py-px rounded-sm border',
-                      WEATHER_TYPE_COLORS[event.type] || WEATHER_TYPE_COLORS.alert,
+                      'border px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider',
+                      isSelected ? 'border-signal-foreground/50' : 'border-domain-weather text-domain-weather',
                     )}>
                       {event.type}
                     </span>
@@ -232,14 +229,14 @@ export function SearchResults({ query }: { query: string }) {
                 </div>
                 {event.magnitude !== null && (
                   <div className="flex flex-col items-end flex-shrink-0">
-                    <span className="font-mono text-[11px] text-zinc-600">M{event.magnitude.toFixed(1)}</span>
+                    <span className={cn('neo-data text-[11px]', isSelected ? 'text-signal-foreground/70' : 'text-muted-foreground')}>M{event.magnitude.toFixed(1)}</span>
                   </div>
                 )}
               </button>
             )
           })}
           {searchResults.events.length > 200 && (
-            <div className="px-3.5 py-1 font-mono text-[11px] text-zinc-600">+{searchResults.events.length - 200} more...</div>
+            <div className="px-3.5 py-2 font-mono text-[11px] text-muted-foreground">+{searchResults.events.length - 200} more...</div>
           )}
         </div>
       )}
@@ -247,29 +244,28 @@ export function SearchResults({ query }: { query: string }) {
       {/* News results */}
       {searchResults.news.length > 0 && (
         <div>
-          <div className="px-3.5 py-1.5 border-b border-zinc-800/60">
-            <span className="font-display text-[11px] font-semibold tracking-[1.5px] text-rose-400/70 uppercase">News</span>
-            <span className="font-mono text-[11px] text-zinc-600 ml-2">{searchResults.news.length}</span>
+          <div className="border-b border-line-muted bg-background px-3.5 py-2">
+            <span className="neo-kicker text-domain-news">News</span>
+            <span className="neo-data ml-2 text-[11px] text-muted-foreground">{searchResults.news.length}</span>
           </div>
           {searchResults.news.slice(0, 200).map(event => {
             const isSelected = event.id === selectedNewsId
-            const dotColor = NEWS_CATEGORY_DOT_COLORS[event.category] ?? '#a1a1aa'
             return (
               <button
                 key={event.id}
                 onClick={() => selectNews(isSelected ? null : event.id)}
                 className={cn(
-                  'w-full flex items-center gap-2 pl-3.5 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
-                  isSelected ? 'bg-rose-950/20 border-l-2 border-l-rose-500' : 'hover:bg-zinc-800/30',
+                  'flex min-h-10 w-full items-center gap-2 border-b border-line-muted py-1 pl-3.5 pr-3 text-left transition-colors',
+                  isSelected ? 'border-l-2 border-l-signal bg-signal text-signal-foreground' : 'hover:bg-panel-raised',
                 )}
               >
-                <span className="inline-block w-[5px] h-[5px] rounded-full flex-shrink-0" style={{ backgroundColor: dotColor }} />
+                <span className="inline-block size-2 flex-shrink-0 border border-domain-news bg-domain-news" />
                 <div className="flex-1 min-w-0">
-                  <div className="font-mono text-[11px] text-zinc-400 truncate">{event.title}</div>
+                  <div className="truncate font-mono text-[11px]">{event.title}</div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <span className={cn(
-                      'font-display text-[9px] font-semibold tracking-[0.5px] uppercase px-1 py-px rounded-sm border',
-                      NEWS_CATEGORY_COLORS[event.category] || NEWS_CATEGORY_COLORS.other,
+                      'border px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider',
+                      isSelected ? 'border-signal-foreground/50' : 'border-domain-news text-domain-news',
                     )}>
                       {event.category}
                     </span>
@@ -284,33 +280,32 @@ export function SearchResults({ query }: { query: string }) {
       {/* Conflict results */}
       {searchResults.conflicts.length > 0 && (
         <div>
-          <div className="px-3.5 py-1.5 border-b border-zinc-800/60">
-            <span className="font-display text-[11px] font-semibold tracking-[1.5px] text-red-400/70 uppercase">Conflicts</span>
-            <span className="font-mono text-[11px] text-zinc-600 ml-2">{searchResults.conflicts.length}</span>
+          <div className="border-b border-line-muted bg-background px-3.5 py-2">
+            <span className="neo-kicker text-domain-conflict">Conflicts</span>
+            <span className="neo-data ml-2 text-[11px] text-muted-foreground">{searchResults.conflicts.length}</span>
           </div>
           {searchResults.conflicts.slice(0, 200).map(event => {
             const isSelected = event.id === selectedConflictId
-            const dotColor = CONFLICT_TYPE_DOT_COLORS[event.type] ?? '#f87171'
             return (
               <button
                 key={event.id}
                 onClick={() => selectConflict(isSelected ? null : event.id)}
                 className={cn(
-                  'w-full flex items-center gap-2 pl-3.5 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
-                  isSelected ? 'bg-red-950/20 border-l-2 border-l-red-500' : 'hover:bg-zinc-800/30',
+                  'flex min-h-10 w-full items-center gap-2 border-b border-line-muted py-1 pl-3.5 pr-3 text-left transition-colors',
+                  isSelected ? 'border-l-2 border-l-signal bg-signal text-signal-foreground' : 'hover:bg-panel-raised',
                 )}
               >
-                <span className="inline-block w-[5px] h-[5px] rounded-full flex-shrink-0" style={{ backgroundColor: dotColor }} />
+                <span className="inline-block size-2 flex-shrink-0 border border-domain-conflict bg-domain-conflict" />
                 <div className="flex-1 min-w-0">
-                  <div className="font-mono text-[11px] text-zinc-400 truncate">{event.title}</div>
+                  <div className="truncate font-mono text-[11px]">{event.title}</div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <span className={cn(
-                      'font-display text-[9px] font-semibold tracking-[0.5px] uppercase px-1 py-px rounded-sm border',
-                      CONFLICT_TYPE_COLORS[event.type] || CONFLICT_TYPE_COLORS.violence,
+                      'border px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider',
+                      isSelected ? 'border-signal-foreground/50' : 'border-domain-conflict text-domain-conflict',
                     )}>
                       {event.type}
                     </span>
-                    {event.fatalities > 0 && <span className="font-mono text-[10px] text-red-400">{event.fatalities}</span>}
+                    {event.fatalities > 0 && <span className="font-mono text-[10px] text-danger">{event.fatalities}</span>}
                   </div>
                 </div>
               </button>
@@ -322,9 +317,9 @@ export function SearchResults({ query }: { query: string }) {
       {/* Cyber results */}
       {searchResults.cyber.length > 0 && (
         <div>
-          <div className="px-3.5 py-1.5 border-b border-zinc-800/60">
-            <span className="font-display text-[11px] font-semibold tracking-[1.5px] text-purple-400/70 uppercase">Cyber Threats</span>
-            <span className="font-mono text-[11px] text-zinc-600 ml-2">{searchResults.cyber.length}</span>
+          <div className="border-b border-line-muted bg-background px-3.5 py-2">
+            <span className="neo-kicker text-domain-cyber">Cyber Threats</span>
+            <span className="neo-data ml-2 text-[11px] text-muted-foreground">{searchResults.cyber.length}</span>
           </div>
           {searchResults.cyber.slice(0, 200).map(event => {
             const isSelected = event.id === selectedCyberId
@@ -333,16 +328,16 @@ export function SearchResults({ query }: { query: string }) {
                 key={event.id}
                 onClick={() => selectCyber(isSelected ? null : event.id)}
                 className={cn(
-                  'w-full flex items-center gap-2 pl-3.5 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
-                  isSelected ? 'bg-purple-950/20 border-l-2 border-l-purple-500' : 'hover:bg-zinc-800/30',
+                  'flex min-h-10 w-full items-center gap-2 border-b border-line-muted py-1 pl-3.5 pr-3 text-left transition-colors',
+                  isSelected ? 'border-l-2 border-l-signal bg-signal text-signal-foreground' : 'hover:bg-panel-raised',
                 )}
               >
                 <div className="flex-1 min-w-0">
-                  <div className="font-mono text-[11px] text-zinc-400 truncate">{event.title}</div>
+                  <div className="truncate font-mono text-[11px]">{event.title}</div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <span className={cn(
-                      'font-display text-[9px] font-semibold tracking-[0.5px] uppercase px-1 py-px rounded-sm border',
-                      CYBER_TYPE_COLORS[event.type] || CYBER_TYPE_COLORS.vulnerability,
+                      'border px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider',
+                      isSelected ? 'border-signal-foreground/50' : 'border-domain-cyber text-domain-cyber',
                     )}>
                       {event.type}
                     </span>
@@ -355,8 +350,8 @@ export function SearchResults({ query }: { query: string }) {
       )}
 
       {totalResults === 0 && (
-        <div className="flex items-center justify-center py-8">
-          <span className="text-[12px] text-zinc-600">No results for &quot;{query}&quot;</span>
+        <div className="flex items-center justify-center border-b border-line-muted bg-background px-4 py-8 text-center">
+          <span className="font-mono text-xs text-muted-foreground">No results for &quot;{query}&quot;.</span>
         </div>
       )}
     </div>
