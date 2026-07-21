@@ -59,36 +59,40 @@ export function SatelliteSection({ expanded, onToggle: onToggleSection }: { expa
 
   return (
     <div>
-      <button
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
         onClick={onToggleSection}
-        className="w-full flex items-center gap-2 px-3.5 py-2.5 border-b border-zinc-800 hover:bg-zinc-800/30 transition-colors"
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleSection() } }}
+        className="flex min-h-10 w-full items-center gap-2 border-b border-line-muted px-3.5 transition-colors hover:bg-panel-raised"
       >
-        <span className="text-[11px] text-zinc-600">{expanded ? '▾' : '▸'}</span>
-        <span className="font-display text-[12px] font-semibold tracking-[2px] text-orange-400 uppercase flex-1 text-left">Satellite</span>
+        <span className="text-[11px] text-muted-foreground" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+        <span className="neo-kicker flex-1 text-left text-domain-satellite">Satellite</span>
         <PipelineError errors={satStats.tracked === 0 && !loading.size ? ['TLE data not yet loaded'] : []} />
-        <span className="font-mono text-[11px] text-zinc-500">{satStats.visible}/{satStats.tracked}</span>
+        <span className="neo-data text-[11px] text-muted-foreground">{satStats.visible}/{satStats.tracked}</span>
         <MasterToggle
           allOn={allOn}
           noneOn={noneOn}
           onToggle={() => allOn ? disableAll() : enableAll()}
         />
-      </button>
+      </div>
 
       {expanded && (
-        <div className="border-b border-zinc-800">
+        <div className="border-b border-line-muted bg-background">
           {Array.from(groupedConstellations.entries()).map(([cat, consts]) => {
             const isExpanded = expandedCategories.has(cat)
             return (
               <div key={cat}>
                 <button
                   onClick={() => toggleCategoryExpand(cat)}
-                  className="w-full flex items-center gap-2 px-3.5 py-1.5 border-b border-zinc-800/40 hover:bg-zinc-800/30 transition-colors"
+                  className="flex min-h-9 w-full items-center gap-2 border-b border-line-muted px-3.5 transition-colors hover:bg-panel-raised"
                 >
-                  <span className="text-[11px] text-zinc-600">{isExpanded ? '▾' : '▸'}</span>
-                  <span className="font-display text-[11px] font-semibold tracking-[1.5px] text-zinc-500 uppercase flex-1 text-left">
+                   <span className="text-[11px] text-muted-foreground">{isExpanded ? '▾' : '▸'}</span>
+                   <span className="neo-kicker flex-1 text-left text-muted-foreground">
                     {CATEGORY_LABELS[cat]}
                   </span>
-                  <span className="font-mono text-[11px] text-zinc-600">{consts.length}</span>
+                   <span className="neo-data text-[11px] text-muted-foreground">{consts.length}</span>
                 </button>
 
                 {isExpanded && consts.map(c => {
@@ -96,31 +100,30 @@ export function SatelliteSection({ expanded, onToggle: onToggleSection }: { expa
                   const isLoading = loading.has(c.id)
                   const sats = getSatellites(c.id)
                   const isConstExpanded = expandedConstellations.has(c.id)
-                  const colorHex = `#${c.color.toString(16).padStart(6, '0')}`
 
                   return (
                     <div key={c.id}>
-                      <div className="flex items-center border-b border-zinc-800/30">
+                       <div className="flex items-center border-b border-line-muted">
                         <button
                           onClick={() => isOn && sats.length > 0 && toggleConstellationExpand(c.id)}
                           className={cn(
-                            'flex-1 flex items-center gap-2 pl-6 pr-1 py-1 text-left transition-colors',
-                            isOn ? 'hover:bg-zinc-800/30' : '',
+                             'flex min-h-9 flex-1 items-center gap-2 py-1 pl-6 pr-1 text-left transition-colors',
+                             isOn ? 'hover:bg-panel-raised' : '',
                           )}
                         >
-                          <span className="inline-block w-[6px] h-[6px] rounded-full flex-shrink-0" style={{ backgroundColor: isOn ? colorHex : '#3f3f46' }} />
-                          <span className={cn('font-display text-[12px] font-medium tracking-wide flex-1 truncate', isOn ? 'text-zinc-300' : 'text-zinc-600')}>
+                           <span className={cn('inline-block size-2 flex-shrink-0 border border-domain-satellite', isOn && 'bg-domain-satellite')} />
+                           <span className={cn('flex-1 truncate font-mono text-xs', isOn ? 'text-foreground' : 'text-muted-foreground')}>
                             {c.name}
                           </span>
-                          {isLoading && <span className="text-[11px] text-zinc-600 animate-pulse">loading</span>}
-                          {!isLoading && sats.length > 0 && <span className="font-mono text-[11px] text-zinc-600">{sats.length}</span>}
-                          {isOn && sats.length > 0 && <span className="text-[11px] text-zinc-600">{isConstExpanded ? '▾' : '▸'}</span>}
+                           {isLoading && <span className="font-mono text-[11px] text-muted-foreground motion-safe:animate-pulse-signal">Loading...</span>}
+                           {!isLoading && sats.length > 0 && <span className="neo-data text-[11px] text-muted-foreground">{sats.length}</span>}
+                           {isOn && sats.length > 0 && <span className="text-[11px] text-muted-foreground">{isConstExpanded ? '▾' : '▸'}</span>}
                         </button>
-                        <TypeToggle on={isOn} color={colorHex} onClick={() => toggle(c.id)} />
+                         <TypeToggle on={isOn} color="var(--domain-satellite)" label={c.name} onClick={() => toggle(c.id)} />
                       </div>
 
                       {isConstExpanded && isOn && sats.length > 0 && (
-                        <div className="max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
+                         <div className="neo-scrollbar max-h-[200px] overflow-y-auto">
                           {sats.slice(0, 100).map(sat => {
                             const pos = getPositions(c.id).find(p => p.noradId === sat.noradId)
                             const isSelected = sat.noradId === selectedSatId
@@ -129,25 +132,25 @@ export function SatelliteSection({ expanded, onToggle: onToggleSection }: { expa
                                 key={sat.noradId}
                                 onClick={() => selectSatellite(isSelected ? null : sat.noradId)}
                                 className={cn(
-                                  'w-full flex items-center gap-2 pl-8 pr-3 py-1 text-left border-b border-zinc-800/20 transition-colors',
-                                  isSelected ? 'bg-orange-950/20 border-l-2 border-l-orange-500' : 'hover:bg-zinc-800/30',
+                                   'flex min-h-9 w-full items-center gap-2 border-b border-line-muted py-1 pl-8 pr-3 text-left transition-colors',
+                                   isSelected ? 'border-l-2 border-l-signal bg-signal text-signal-foreground' : 'hover:bg-panel-raised',
                                 )}
                               >
                                 <div className="flex-1 min-w-0">
-                                  <div className="font-mono text-[11px] text-zinc-400 truncate">{sat.name}</div>
-                                  <div className="font-mono text-[11px] text-zinc-600">{sat.noradId}</div>
+                                   <div className="truncate font-mono text-[11px]">{sat.name}</div>
+                                   <div className={cn('neo-data text-[11px]', isSelected ? 'text-signal-foreground/70' : 'text-muted-foreground')}>{sat.noradId}</div>
                                 </div>
                                 {pos && (
                                   <div className="flex flex-col items-end flex-shrink-0">
-                                    <span className="font-mono text-[11px] text-zinc-600">{pos.alt.toFixed(0)} km</span>
-                                    <span className="font-mono text-[11px] text-zinc-600">{pos.velocity.toFixed(1)} km/s</span>
+                                     <span className={cn('neo-data text-[11px]', isSelected ? 'text-signal-foreground/70' : 'text-muted-foreground')}>{pos.alt.toFixed(0)} km</span>
+                                     <span className={cn('neo-data text-[11px]', isSelected ? 'text-signal-foreground/70' : 'text-muted-foreground')}>{pos.velocity.toFixed(1)} km/s</span>
                                   </div>
                                 )}
                               </button>
                             )
                           })}
                           {sats.length > 100 && (
-                            <div className="px-8 py-1 font-mono text-[11px] text-zinc-600">+{sats.length - 100} more...</div>
+                             <div className="px-8 py-2 font-mono text-[11px] text-muted-foreground">+{sats.length - 100} more...</div>
                           )}
                         </div>
                       )}

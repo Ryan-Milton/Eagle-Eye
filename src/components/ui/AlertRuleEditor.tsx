@@ -14,6 +14,8 @@ const TRIGGER_LABELS: Record<RuleTrigger, string> = {
 
 const DOMAINS = ['vessel', 'flight', 'weather', 'conflict', 'cyber', 'satellite']
 const SEVERITIES: AlertRule['alertSeverity'][] = ['info', 'warning', 'critical']
+const inputClass = 'mt-1 min-h-9 w-full border border-input bg-background px-2 font-mono text-[11px] text-foreground outline-none focus:border-focus focus:ring-1 focus:ring-focus'
+const labelClass = 'neo-kicker text-muted-foreground'
 
 export function AlertRuleEditor({ onClose }: { onClose: () => void }) {
   const { addRule } = useAlertRuleStore()
@@ -85,10 +87,10 @@ export function AlertRuleEditor({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="bg-zinc-900 border border-zinc-700 rounded-md p-3 space-y-3">
+    <div className="space-y-3 border border-line bg-panel p-3">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-mono text-zinc-300 uppercase tracking-wider">New Alert Rule</span>
-        <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 text-xs">X</button>
+        <span className="neo-kicker text-foreground">New Alert Rule</span>
+        <button type="button" onClick={onClose} aria-label="Close rule editor" className="grid size-9 place-items-center border border-line-muted bg-background font-mono text-xs text-muted-foreground hover:bg-signal hover:text-signal-foreground">X</button>
       </div>
 
       {/* Rule name */}
@@ -97,22 +99,23 @@ export function AlertRuleEditor({ onClose }: { onClose: () => void }) {
         value={name}
         onChange={e => setName(e.target.value)}
         placeholder="Rule name..."
-        className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-[11px] text-zinc-300 font-mono focus:border-orange-800 focus:outline-none"
+        aria-label="Rule name"
+        className={inputClass}
       />
 
       {/* Trigger type */}
       <div>
-        <label className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider">Trigger</label>
+        <div className={labelClass}>Trigger</div>
         <div className="flex flex-wrap gap-1 mt-1">
           {(Object.keys(TRIGGER_LABELS) as RuleTrigger[]).map(t => (
             <button
               key={t}
               onClick={() => setTrigger(t)}
               className={cn(
-                'px-2 py-1 text-[10px] font-mono rounded transition-colors',
+                'min-h-9 border px-2 font-mono text-[10px] uppercase transition-colors',
                 trigger === t
-                  ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40'
-                  : 'bg-zinc-800 text-zinc-500 border border-zinc-700 hover:text-zinc-300',
+                  ? 'border-signal bg-signal text-signal-foreground'
+                  : 'border-line-muted bg-background text-muted-foreground hover:border-line hover:text-foreground',
               )}
             >
               {TRIGGER_LABELS[t]}
@@ -125,17 +128,17 @@ export function AlertRuleEditor({ onClose }: { onClose: () => void }) {
       <div className="space-y-2">
         {trigger === 'domain' && (
           <div>
-            <label className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider">Match domains</label>
+            <div className={labelClass}>Match domains</div>
             <div className="flex flex-wrap gap-1 mt-1">
               {DOMAINS.map(d => (
                 <button
                   key={d}
                   onClick={() => toggleDomain(d)}
                   className={cn(
-                    'px-2 py-0.5 text-[10px] font-mono rounded transition-colors',
+                    'min-h-9 border px-2 font-mono text-[10px] uppercase transition-colors',
                     selectedDomains.includes(d)
-                      ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
-                      : 'bg-zinc-800 text-zinc-500 border border-zinc-700',
+                      ? 'border-signal bg-signal text-signal-foreground'
+                      : 'border-line-muted bg-background text-muted-foreground',
                   )}
                 >
                   {d}
@@ -147,7 +150,7 @@ export function AlertRuleEditor({ onClose }: { onClose: () => void }) {
 
         {trigger === 'severity' && (
           <div>
-            <label className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider">
+            <label className={labelClass}>
               Min severity: {severityThreshold}
             </label>
             <input
@@ -156,20 +159,20 @@ export function AlertRuleEditor({ onClose }: { onClose: () => void }) {
               max={10}
               value={severityThreshold}
               onChange={e => setSeverityThreshold(parseInt(e.target.value))}
-              className="w-full mt-1 accent-orange-500"
+              className="mt-2 min-h-9 w-full accent-signal"
             />
           </div>
         )}
 
         {trigger === 'keyword' && (
           <div>
-            <label className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider">Keywords (comma-separated)</label>
+            <label className={labelClass}>Keywords (comma-separated)</label>
             <input
               type="text"
               value={keywordInput}
               onChange={e => setKeywordInput(e.target.value)}
               placeholder="nuclear, missile, explosion"
-              className="w-full mt-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-[11px] text-zinc-300 font-mono focus:border-orange-800 focus:outline-none"
+              className={inputClass}
             />
           </div>
         )}
@@ -177,11 +180,11 @@ export function AlertRuleEditor({ onClose }: { onClose: () => void }) {
         {trigger === 'geofence' && (
           <div className="space-y-2">
             <div>
-              <label className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider">Geofence</label>
+              <label className={labelClass}>Geofence</label>
               <select
                 value={geofenceId}
                 onChange={e => setGeofenceId(e.target.value)}
-                className="w-full mt-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-[11px] text-zinc-300 font-mono focus:border-orange-800 focus:outline-none"
+                className={inputClass}
               >
                 <option value="">Select zone...</option>
                 {geofences.map(gf => (
@@ -190,11 +193,11 @@ export function AlertRuleEditor({ onClose }: { onClose: () => void }) {
               </select>
             </div>
             <div>
-              <label className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider">Domain filter (optional)</label>
+              <label className={labelClass}>Domain filter (optional)</label>
               <select
                 value={geofenceDomain}
                 onChange={e => setGeofenceDomain(e.target.value)}
-                className="w-full mt-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-[11px] text-zinc-300 font-mono focus:border-orange-800 focus:outline-none"
+                className={inputClass}
               >
                 <option value="">All domains</option>
                 {DOMAINS.map(d => <option key={d} value={d}>{d}</option>)}
@@ -207,44 +210,44 @@ export function AlertRuleEditor({ onClose }: { onClose: () => void }) {
           <div className="space-y-2">
             <div className="flex gap-2">
               <div className="flex-1">
-                <label className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider">Lat</label>
+                <label className={labelClass}>Lat</label>
                 <input
                   type="number"
                   step="0.01"
                   value={proxLat}
                   onChange={e => setProxLat(e.target.value)}
                   placeholder="33.5"
-                  className="w-full mt-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-[11px] text-zinc-300 font-mono focus:border-orange-800 focus:outline-none"
+                  className={inputClass}
                 />
               </div>
               <div className="flex-1">
-                <label className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider">Lon</label>
+                <label className={labelClass}>Lon</label>
                 <input
                   type="number"
                   step="0.01"
                   value={proxLon}
                   onChange={e => setProxLon(e.target.value)}
                   placeholder="44.0"
-                  className="w-full mt-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-[11px] text-zinc-300 font-mono focus:border-orange-800 focus:outline-none"
+                  className={inputClass}
                 />
               </div>
               <div className="flex-1">
-                <label className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider">Radius (km)</label>
+                <label className={labelClass}>Radius (km)</label>
                 <input
                   type="number"
                   value={proxRadius}
                   onChange={e => setProxRadius(e.target.value)}
                   placeholder="50"
-                  className="w-full mt-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-[11px] text-zinc-300 font-mono focus:border-orange-800 focus:outline-none"
+                  className={inputClass}
                 />
               </div>
             </div>
             <div>
-              <label className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider">Domain filter (optional)</label>
+              <label className={labelClass}>Domain filter (optional)</label>
               <select
                 value={proxDomain}
                 onChange={e => setProxDomain(e.target.value)}
-                className="w-full mt-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-[11px] text-zinc-300 font-mono focus:border-orange-800 focus:outline-none"
+                className={inputClass}
               >
                 <option value="">All domains</option>
                 {DOMAINS.map(d => <option key={d} value={d}>{d}</option>)}
@@ -256,19 +259,19 @@ export function AlertRuleEditor({ onClose }: { onClose: () => void }) {
 
       {/* Alert severity */}
       <div>
-        <label className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider">Alert severity</label>
+        <div className={labelClass}>Alert severity</div>
         <div className="flex gap-1 mt-1">
           {SEVERITIES.map(s => (
             <button
               key={s}
               onClick={() => setAlertSeverity(s)}
               className={cn(
-                'px-2 py-0.5 text-[10px] font-mono rounded transition-colors',
+                'min-h-9 border px-2 font-mono text-[10px] uppercase transition-colors',
                 alertSeverity === s
-                  ? s === 'critical' ? 'bg-red-500/20 text-red-400 border border-red-500/40'
-                    : s === 'warning' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/40'
-                    : 'bg-blue-500/20 text-blue-400 border border-blue-500/40'
-                  : 'bg-zinc-800 text-zinc-500 border border-zinc-700',
+                  ? s === 'critical' ? 'border-danger bg-danger text-background'
+                    : s === 'warning' ? 'border-warning bg-warning text-background'
+                    : 'border-info bg-info text-background'
+                  : 'border-line-muted bg-background text-muted-foreground',
               )}
             >
               {s}
@@ -283,17 +286,17 @@ export function AlertRuleEditor({ onClose }: { onClose: () => void }) {
           onClick={handleSave}
           disabled={!name.trim()}
           className={cn(
-            'flex-1 py-1.5 text-[10px] font-mono uppercase tracking-wider rounded transition-colors',
+            'min-h-9 flex-1 border px-2 font-mono text-[10px] uppercase tracking-wider transition-colors',
             name.trim()
-              ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40 hover:bg-orange-500/30'
-              : 'bg-zinc-800 text-zinc-600 border border-zinc-700 cursor-not-allowed',
+              ? 'border-signal bg-signal text-signal-foreground hover:bg-signal-soft'
+              : 'cursor-not-allowed border-line-muted bg-muted text-muted-foreground',
           )}
         >
           Save Rule
         </button>
         <button
           onClick={onClose}
-          className="flex-1 py-1.5 text-[10px] font-mono uppercase tracking-wider rounded bg-zinc-800 text-zinc-500 border border-zinc-700 hover:text-zinc-300"
+          className="min-h-9 flex-1 border border-line-muted bg-background px-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:border-line hover:text-foreground"
         >
           Cancel
         </button>
@@ -309,15 +312,15 @@ export function AlertRuleList() {
   if (rules.length === 0) return null
 
   return (
-    <div className="px-3 py-2 space-y-1">
+    <div className="space-y-1 px-3 py-2">
       {rules.map(rule => (
         <div
           key={rule.id}
           className={cn(
-            'flex items-center gap-2 px-2 py-1.5 rounded border transition-colors',
+            'flex items-center gap-2 border px-2 py-1.5 transition-colors',
             rule.enabled
-              ? 'bg-zinc-800/50 border-zinc-700'
-              : 'bg-zinc-900/50 border-zinc-800 opacity-50',
+              ? 'border-line-muted bg-panel-subtle'
+              : 'border-line-muted bg-background opacity-50',
           )}
         >
           <TooltipProvider delayDuration={200}>
@@ -326,21 +329,24 @@ export function AlertRuleList() {
                 <button
                   onClick={() => toggleRule(rule.id)}
                   className={cn(
-                    'w-2 h-2 rounded-full flex-shrink-0 transition-colors',
-                    rule.enabled ? 'bg-green-400' : 'bg-zinc-600',
+                    'grid size-9 flex-shrink-0 place-items-center border transition-colors',
+                    rule.enabled ? 'border-success text-success' : 'border-line-muted text-muted-foreground',
                   )}
-                />
+                  aria-label={`${rule.enabled ? 'Disable' : 'Enable'} ${rule.name}`}
+                  aria-pressed={rule.enabled}
+                ><span className="size-3 border border-current bg-current" aria-hidden="true" /></button>
               </TooltipTrigger>
               <TooltipContent side="right">{rule.enabled ? 'Disable' : 'Enable'}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
           <div className="flex-1 min-w-0">
-            <div className="text-[11px] font-mono text-zinc-300 truncate">{rule.name}</div>
-            <div className="text-[9px] font-mono text-zinc-600 uppercase">{rule.trigger} — {rule.alertSeverity}</div>
+            <div className="truncate font-mono text-[11px] text-foreground">{rule.name}</div>
+            <div className="font-mono text-[9px] uppercase text-muted-foreground">{rule.trigger} — {rule.alertSeverity}</div>
           </div>
           <button
             onClick={() => removeRule(rule.id)}
-            className="text-zinc-600 hover:text-red-400 text-[10px] font-mono flex-shrink-0 transition-colors"
+            aria-label={`Delete ${rule.name}`}
+            className="grid size-9 flex-shrink-0 place-items-center border border-transparent font-mono text-[10px] text-muted-foreground transition-colors hover:border-danger hover:text-danger"
           >
             X
           </button>

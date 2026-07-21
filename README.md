@@ -8,6 +8,8 @@ Eagle Eye is a full-stack web application that fuses 15+ live data sources onto 
 
 The frontend is built with React and Mapbox GL JS, while a Bun-based backend server handles data aggregation, API proxying, and WebSocket streaming. Zustand stores manage live state across all domains, and a rule-based alert engine monitors incoming data for user-defined triggers.
 
+The interface uses a technical neo-brutalist design system with square geometry, hard shadows, dense data typography, and semantic domain colors. It supports the dark `signal` theme and light `schematic` theme; the selected theme is persisted locally and applied at the document level.
+
 ## Features
 
 **Multi-Domain Entity Tracking**
@@ -45,6 +47,11 @@ The frontend is built with React and Mapbox GL JS, while a Bun-based backend ser
 - 6-hour scrubber with drag interaction
 - Replay mode with 1x–10x playback speed
 
+**Responsive Interface**
+- Responsive grid shell with persistent tracking and intelligence panels on wide screens
+- Sheet-based tracking, intelligence, and navigation drawers on smaller screens
+- Shared Radix-based UI catalog for forms, feedback, overlays, navigation, charts, tables, and data-display states
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -52,12 +59,13 @@ The frontend is built with React and Mapbox GL JS, while a Bun-based backend ser
 | Frontend | React 19, TypeScript 5.9 |
 | Mapping | Mapbox GL JS 3.19 |
 | State | Zustand 5.0 |
-| Styling | Tailwind CSS 4, Barlow + DM Mono fonts |
+| Styling | Tailwind CSS 4, technical neo themes, Inter + IBM Plex Mono |
 | Charts | Recharts 3.7 |
 | Orbital Mechanics | satellite.js 6.0 |
 | Backend | Bun (HTTP + WebSocket) |
 | Bundler | Vite 6.4 |
 | UI Primitives | Radix UI, Lucide React |
+| Tests | Vitest 4, Testing Library, jsdom |
 
 ## Getting Started
 
@@ -102,6 +110,8 @@ npm run dev
 
 This starts the Bun backend server on port 4000 and the Vite dev server with hot module replacement.
 
+The development-only component gallery is available at [http://localhost:5173/?design-system](http://localhost:5173/?design-system). It loads independently from the Eagle Eye application and exercises the shared component catalog in both `signal` and `schematic` themes. The route is unavailable in production builds.
+
 ### Production
 
 ```bash
@@ -113,6 +123,13 @@ npm run preview    # Preview the production build locally
 
 ```bash
 npm run lint
+```
+
+### Testing
+
+```bash
+npm test             # Vitest in watch mode
+npm run test:run     # Run the full suite once
 ```
 
 ## DEVLOG

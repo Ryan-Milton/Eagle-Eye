@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import mapboxgl from 'mapbox-gl'
 import { haversineDistance, initialBearing } from '@/lib/utils'
+import { getVisualTheme } from '@/lib/visual-theme'
+import { useAppStore } from '@/stores/app-store'
 
 interface MeasurementToolProps {
   map: mapboxgl.Map | null
@@ -59,6 +61,8 @@ export function MeasurementTool({ map }: MeasurementToolProps) {
   const [active, setActive] = useState(false)
   const [waypoints, setWaypoints] = useState<Waypoint[]>([])
   const waypointsRef = useRef<Waypoint[]>([])
+  const theme = useAppStore(state => state.theme)
+  const visualTheme = getVisualTheme(theme)
 
   // Keep ref in sync
   useEffect(() => { waypointsRef.current = waypoints }, [waypoints])
@@ -72,14 +76,14 @@ export function MeasurementTool({ map }: MeasurementToolProps) {
 
       map.addSource(SOURCE_ID, {
         type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
+        data: buildLineGeoJSON(waypointsRef.current),
       })
       map.addLayer({
         id: LAYER_ID,
         type: 'line',
         source: SOURCE_ID,
         paint: {
-          'line-color': '#f97316',
+          'line-color': visualTheme.signal,
           'line-width': 2,
           'line-dasharray': [4, 2],
         },
@@ -87,7 +91,7 @@ export function MeasurementTool({ map }: MeasurementToolProps) {
 
       map.addSource(POINTS_SOURCE_ID, {
         type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
+        data: buildPointsGeoJSON(waypointsRef.current),
       })
       map.addLayer({
         id: POINTS_LAYER_ID,
@@ -95,9 +99,9 @@ export function MeasurementTool({ map }: MeasurementToolProps) {
         source: POINTS_SOURCE_ID,
         paint: {
           'circle-radius': 5,
-          'circle-color': '#f97316',
+          'circle-color': visualTheme.signal,
           'circle-stroke-width': 2,
-          'circle-stroke-color': '#ffffff',
+          'circle-stroke-color': visualTheme.foreground,
         },
       })
     }
@@ -112,7 +116,7 @@ export function MeasurementTool({ map }: MeasurementToolProps) {
       if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID)
       if (map.getSource(POINTS_SOURCE_ID)) map.removeSource(POINTS_SOURCE_ID)
     }
-  }, [map, active])
+  }, [map, active, theme, visualTheme.foreground, visualTheme.signal])
 
   // Click handler for placing waypoints
   useEffect(() => {
@@ -177,14 +181,17 @@ export function MeasurementTool({ map }: MeasurementToolProps) {
   const totals = waypoints.length >= 2 ? computeTotals(waypoints) : null
 
   return (
-    <div className="absolute top-3 right-3 flex flex-col items-end gap-2">
+    <div className="absolute top-3 right-3 flex flex-col items-end gap-2 text-foreground">
       {/* Toggle button */}
       <button
+        type="button"
         onClick={handleToggle}
-        className={`px-3 py-1.5 text-xs font-mono uppercase tracking-wider rounded-md border backdrop-blur-sm transition-colors ${
+        aria-label={active ? 'Stop measuring distance' : 'Measure distance'}
+        aria-pressed={active}
+        className={`min-h-9 border px-3 font-mono text-xs font-bold uppercase tracking-wider transition-colors ${
           active
-            ? 'bg-orange-500/20 text-orange-400 border-orange-500/40'
-            : 'bg-zinc-900/90 text-zinc-400 border-zinc-700 hover:text-zinc-200'
+            ? 'border-signal bg-signal text-signal-foreground'
+            : 'border-line bg-panel text-muted-foreground hover:bg-panel-raised hover:text-foreground'
         }`}
       >
         {active ? 'Measuring' : 'Measure'}
@@ -192,39 +199,41 @@ export function MeasurementTool({ map }: MeasurementToolProps) {
 
       {/* Results panel */}
       {active && waypoints.length > 0 && (
-        <div className="bg-zinc-900/90 backdrop-blur-sm border border-zinc-700 rounded-md px-3 py-2 font-mono text-[11px] min-w-[180px]">
-          <div className="text-zinc-500 mb-1.5">
+        <div className="min-w-[180px] border border-line bg-panel px-3 py-2 font-mono text-[11px]">
+          <div className="mb-1.5 text-muted-foreground">
             {waypoints.length} point{waypoints.length !== 1 ? 's' : ''}
           </div>
 
           {totals && (
             <div className="space-y-1">
               <div className="flex justify-between">
-                <span className="text-zinc-500">Distance</span>
-                <span className="text-zinc-300">{totals.totalKm.toFixed(2)} km</span>
+                <span className="text-muted-foreground">Distance</span>
+                <span className="text-foreground">{totals.totalKm.toFixed(2)} km</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-zinc-500">Nautical</span>
-                <span className="text-zinc-300">{totals.totalNm.toFixed(2)} nm</span>
+                <span className="text-muted-foreground">Nautical</span>
+                <span className="text-foreground">{totals.totalNm.toFixed(2)} nm</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-zinc-500">Bearing</span>
-                <span className="text-zinc-300">{totals.bearing.toFixed(1)}°</span>
+                <span className="text-muted-foreground">Bearing</span>
+                <span className="text-foreground">{totals.bearing.toFixed(1)}°</span>
               </div>
             </div>
           )}
 
-          <div className="flex gap-2 mt-2 pt-2 border-t border-zinc-700">
+          <div className="mt-2 flex border-t border-line-muted pt-2">
             <button
+              type="button"
               onClick={handleUndo}
               disabled={waypoints.length === 0}
-              className="text-zinc-500 hover:text-zinc-300 disabled:opacity-30 text-[10px] uppercase tracking-wider"
+              className="min-h-9 border border-line-muted px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:bg-panel-raised hover:text-foreground disabled:opacity-30"
             >
               Undo
             </button>
             <button
+              type="button"
               onClick={handleClear}
-              className="text-zinc-500 hover:text-zinc-300 text-[10px] uppercase tracking-wider"
+              className="min-h-9 border-y border-r border-line-muted px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:bg-panel-raised hover:text-foreground"
             >
               Clear
             </button>

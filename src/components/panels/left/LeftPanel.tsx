@@ -47,14 +47,14 @@ export function LeftPanel() {
   const isSearching = globalQuery.length > 0
 
   return (
-    <aside className="fixed top-[46px] left-0 bottom-[34px] w-64 bg-zinc-900 border-r border-zinc-800 z-40 flex flex-col overflow-hidden">
-      <div className="flex items-center justify-between px-3.5 h-9 border-b border-zinc-800 flex-shrink-0">
-        <span className="font-display text-[12px] font-semibold tracking-[2.5px] text-zinc-600 uppercase">Tracking</span>
+    <aside className="relative flex h-full min-h-0 w-full flex-col overflow-hidden border-r border-line bg-panel">
+      <div className="flex h-10 flex-shrink-0 items-center justify-between border-b border-line px-3.5">
+        <span className="neo-kicker text-muted-foreground">Tracking</span>
       </div>
 
-      <SearchInput value={globalQuery} onChange={setGlobalQuery} placeholder="Search all entities..." focusColor="focus:border-orange-800" />
+      <SearchInput value={globalQuery} onChange={setGlobalQuery} placeholder="Search all entities..." />
 
-      <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
+      <div className="neo-scrollbar flex-1 overflow-y-auto">
         {isSearching ? (
           <SearchResults query={globalQuery} />
         ) : (

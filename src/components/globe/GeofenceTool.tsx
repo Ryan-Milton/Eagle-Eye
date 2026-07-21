@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import mapboxgl from 'mapbox-gl'
 import { useGeofenceStore } from '@/stores/geofence-store'
+import { useAppStore } from '@/stores/app-store'
+import { getVisualTheme } from '@/lib/visual-theme'
 import type { Geofence } from '@/lib/persistence'
 
 interface GeofenceToolProps {
@@ -37,6 +39,11 @@ export function GeofenceTool({ map }: GeofenceToolProps) {
   const [showPanel, setShowPanel] = useState(false)
   const startRef = useRef<{ lon: number; lat: number } | null>(null)
   const { geofences, addGeofence, removeGeofence, loadFromDB } = useGeofenceStore()
+  const geofencesRef = useRef(geofences)
+  const theme = useAppStore(state => state.theme)
+  const visualTheme = getVisualTheme(theme)
+
+  useEffect(() => { geofencesRef.current = geofences }, [geofences])
 
   // Load geofences from IndexedDB on mount
   useEffect(() => { loadFromDB() }, [loadFromDB])
@@ -50,14 +57,14 @@ export function GeofenceTool({ map }: GeofenceToolProps) {
 
       map.addSource(SOURCE_ID, {
         type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
+        data: buildGeofenceGeoJSON(geofencesRef.current),
       })
       map.addLayer({
         id: FILL_LAYER_ID,
         type: 'fill',
         source: SOURCE_ID,
         paint: {
-          'fill-color': '#f97316',
+          'fill-color': visualTheme.signal,
           'fill-opacity': 0.08,
         },
       })
@@ -66,7 +73,7 @@ export function GeofenceTool({ map }: GeofenceToolProps) {
         type: 'line',
         source: SOURCE_ID,
         paint: {
-          'line-color': '#f97316',
+          'line-color': visualTheme.signal,
           'line-width': 2,
           'line-dasharray': [4, 2],
           'line-opacity': 0.6,
@@ -84,8 +91,8 @@ export function GeofenceTool({ map }: GeofenceToolProps) {
           'text-offset': [0, 0.5],
         },
         paint: {
-          'text-color': '#f97316',
-          'text-halo-color': '#09090b',
+          'text-color': visualTheme.signal,
+          'text-halo-color': visualTheme.background,
           'text-halo-width': 1,
         },
       })
@@ -103,7 +110,7 @@ export function GeofenceTool({ map }: GeofenceToolProps) {
         if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID)
       } catch { /* map already destroyed */ }
     }
-  }, [map])
+  }, [map, theme, visualTheme.background, visualTheme.signal])
 
   // Sync geofences to map
   useEffect(() => {
@@ -186,22 +193,28 @@ export function GeofenceTool({ map }: GeofenceToolProps) {
   }, [drawing])
 
   return (
-    <div className="absolute top-3 right-48 flex flex-col items-end gap-2">
+    <div className="absolute right-3 top-14 flex flex-col items-end gap-2 text-foreground sm:right-48 sm:top-3">
       <div className="flex gap-1">
         <button
+          type="button"
           onClick={handleToggleDraw}
-          className={`px-3 py-1.5 text-xs font-mono uppercase tracking-wider rounded-md border backdrop-blur-sm transition-colors ${
+          aria-label={drawing ? 'Cancel geofence drawing' : 'Draw a geofence'}
+          aria-pressed={drawing}
+          className={`min-h-9 border px-3 font-mono text-xs font-bold uppercase tracking-wider transition-colors ${
             drawing
-              ? 'bg-orange-500/20 text-orange-400 border-orange-500/40'
-              : 'bg-zinc-900/90 text-zinc-400 border-zinc-700 hover:text-zinc-200'
+              ? 'border-signal bg-signal text-signal-foreground'
+              : 'border-line bg-panel text-muted-foreground hover:bg-panel-raised hover:text-foreground'
           }`}
         >
           {drawing ? 'Drawing...' : 'Geofence'}
         </button>
         {geofences.length > 0 && (
           <button
+            type="button"
             onClick={() => setShowPanel(!showPanel)}
-            className="px-2 py-1.5 text-xs font-mono rounded-md border bg-zinc-900/90 text-zinc-400 border-zinc-700 hover:text-zinc-200 backdrop-blur-sm"
+            aria-label={`${showPanel ? 'Hide' : 'Show'} ${geofences.length} saved geofences`}
+            aria-expanded={showPanel}
+            className="min-h-9 min-w-9 border border-line bg-panel px-2 font-mono text-xs text-muted-foreground hover:bg-panel-raised hover:text-foreground"
           >
             {geofences.length}
           </button>
@@ -209,18 +222,20 @@ export function GeofenceTool({ map }: GeofenceToolProps) {
       </div>
 
       {showPanel && geofences.length > 0 && (
-        <div className="bg-zinc-900/90 backdrop-blur-sm border border-zinc-700 rounded-md px-3 py-2 font-mono text-[11px] min-w-[200px] max-h-[200px] overflow-y-auto">
-          <div className="text-zinc-500 mb-1.5 text-[10px] uppercase tracking-wider">Geofences</div>
+        <div className="max-h-[200px] min-w-[200px] overflow-y-auto border border-line bg-panel px-3 py-2 font-mono text-[11px]">
+          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Geofences</div>
           {geofences.map(gf => (
-            <div key={gf.id} className="flex items-center justify-between py-1 border-b border-zinc-800/40">
-              <span className="text-zinc-300 truncate flex-1">{gf.name}</span>
+            <div key={gf.id} className="flex min-h-9 items-center justify-between border-b border-line-muted py-1">
+              <span className="flex-1 truncate text-foreground">{gf.name}</span>
               <div className="flex gap-1.5 ml-2 flex-shrink-0">
-                <span className="text-[9px] text-orange-400/60">
+                <span className="self-center text-[9px] text-signal">
                   {gf.alertOnEnter ? 'ENT' : ''} {gf.alertOnExit ? 'EXT' : ''}
                 </span>
                 <button
+                  type="button"
                   onClick={() => removeGeofence(gf.id)}
-                  className="text-zinc-600 hover:text-red-400 text-[10px]"
+                  aria-label={`Remove ${gf.name} geofence`}
+                  className="grid size-9 place-items-center border border-line-muted text-[10px] text-muted-foreground hover:border-danger hover:bg-danger hover:text-background"
                 >
                   x
                 </button>

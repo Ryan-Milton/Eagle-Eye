@@ -30,24 +30,27 @@ export function CoordinateHUD({ map }: CoordinateHUDProps) {
   }, [map])
 
   return (
-    <div className="absolute bottom-3 left-3 bg-zinc-900/90 backdrop-blur-sm border border-zinc-700 rounded-md px-3 py-1.5 font-mono text-[11px] text-zinc-400 flex items-center gap-3 pointer-events-none select-none">
+    <div
+      className="pointer-events-none absolute bottom-3 left-3 flex min-h-9 select-none items-center gap-3 border border-line bg-panel px-3 font-mono text-[11px] text-muted-foreground"
+      aria-label={coords ? `Latitude ${coords.lat.toFixed(4)}, longitude ${coords.lon.toFixed(4)}, zoom ${zoom.toFixed(1)}` : `Map coordinates unavailable, zoom ${zoom.toFixed(1)}`}
+    >
       {coords ? (
         <>
           <span>
-            <span className="text-zinc-600">LAT </span>
-            <span className="text-zinc-300">{coords.lat.toFixed(4)}°</span>
+            <span className="text-muted-foreground">LAT </span>
+            <span className="text-foreground">{coords.lat.toFixed(4)}°</span>
           </span>
           <span>
-            <span className="text-zinc-600">LON </span>
-            <span className="text-zinc-300">{coords.lon.toFixed(4)}°</span>
+            <span className="text-muted-foreground">LON </span>
+            <span className="text-foreground">{coords.lon.toFixed(4)}°</span>
           </span>
         </>
       ) : (
-        <span className="text-zinc-600">— —</span>
+        <span className="text-muted-foreground">— —</span>
       )}
-      <span className="border-l border-zinc-700 pl-3">
-        <span className="text-zinc-600">Z </span>
-        <span className="text-zinc-300">{zoom.toFixed(1)}</span>
+      <span className="border-l border-line-muted pl-3">
+        <span className="text-muted-foreground">Z </span>
+        <span className="text-foreground">{zoom.toFixed(1)}</span>
       </span>
     </div>
   )

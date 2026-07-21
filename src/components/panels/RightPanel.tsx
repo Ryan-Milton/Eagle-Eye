@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { CONSTELLATIONS } from '@/data/constellations'
 import { cn } from '@/lib/utils'
-import { VESSEL_TYPE_COLORS, FLIGHT_TYPE_COLORS, WEATHER_TYPE_COLORS, NEWS_CATEGORY_COLORS, CONFLICT_TYPE_COLORS, CYBER_TYPE_COLORS, OSINT_PLATFORM_COLORS, RF_SOURCE_COLORS } from '@/lib/colors'
 import { useSatelliteStore } from '@/stores/satellite-store'
 import { useVesselStore } from '@/stores/vessel-store'
 import { useFlightStore } from '@/stores/flight-store'
@@ -21,6 +20,7 @@ import type { OsintPost } from '@/lib/osint-client'
 import { useSelectionStore } from '@/stores/selection-store'
 import { useWatchlistStore } from '@/stores/watchlist-store'
 import { useFlightInfo } from '@/hooks/useFlightInfo'
+import { useNow } from '@/hooks/useNow'
 import { findNearbyEntities, type CorrelatedEntity } from '@/lib/correlation'
 import type { HexdbFlightInfo } from '@/lib/hexdb'
 import type { SatelliteRecord, SatellitePosition, VesselRecord, FlightRecord, ConstellationMeta, WeatherEvent, NewsEvent, ConflictEvent, CyberEvent, RFSpot } from '@/types'
@@ -40,13 +40,13 @@ const NAV_STATUS_LABELS: Record<number, string> = {
 }
 
 const DOMAIN_COLORS_MAP: Record<string, string> = {
-  vessel: 'text-cyan-400',
-  flight: 'text-yellow-400',
-  weather: 'text-green-400',
-  news: 'text-rose-400',
-  conflict: 'text-red-400',
-  cyber: 'text-purple-400',
-  satellite: 'text-orange-400',
+  vessel: 'text-domain-vessel',
+  flight: 'text-domain-flight',
+  weather: 'text-domain-weather',
+  news: 'text-domain-news',
+  conflict: 'text-domain-conflict',
+  cyber: 'text-domain-cyber',
+  satellite: 'text-domain-satellite',
 }
 
 export function RightPanel() {
@@ -97,8 +97,6 @@ export function RightPanel() {
   const constellation = selectedSatellite
     ? CONSTELLATIONS.find(c => c.id === selectedSatellite.constellationId) ?? null
     : null
-  const colorHex = constellation ? `#${constellation.color.toString(16).padStart(6, '0')}` : '#3f3f46'
-
   const epochAgeRef = useRef<number | null>(null)
   useEffect(() => {
     if (!selectedSatellite) { epochAgeRef.current = null; return }
@@ -157,11 +155,11 @@ export function RightPanel() {
   const selectionPending = hasSelectionId && !hasSelection
 
   return (
-    <aside className="fixed top-[46px] right-0 bottom-[34px] w-[272px] bg-zinc-900 border-l border-zinc-800 z-40 flex flex-col overflow-hidden">
+    <aside className="relative flex h-full min-h-0 w-full flex-col overflow-hidden border-l border-line bg-panel">
 
       {/* Header */}
-      <div className="flex items-center justify-between px-3.5 h-9 border-b border-zinc-800 flex-shrink-0">
-        <span className="font-display text-[12px] font-semibold tracking-[2px] uppercase text-zinc-400">
+      <div className="flex h-10 flex-shrink-0 items-center justify-between border-b border-line px-3.5">
+        <span className="neo-kicker text-muted-foreground">
           {hasSelection ? panelTitle : selectionPending ? 'Loading Entity...' : 'Intelligence Feed'}
         </span>
         {selectedEntityId && (
@@ -170,7 +168,9 @@ export function RightPanel() {
               <TooltipTrigger asChild>
                 <button
                   onClick={() => toggleWatch(selectedEntityId)}
-                  className={cn('text-sm transition-colors', isWatched ? 'text-orange-400' : 'text-zinc-600 hover:text-zinc-400')}
+                  aria-label={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}
+                  aria-pressed={isWatched}
+                  className={cn('grid size-9 place-items-center border font-mono text-sm transition-colors', isWatched ? 'border-signal bg-signal text-signal-foreground' : 'border-line-muted bg-background text-muted-foreground hover:border-line hover:text-foreground')}
                 >
                   {isWatched ? '★' : '☆'}
                 </button>
@@ -196,12 +196,12 @@ export function RightPanel() {
       ) : selectedVessel ? (
         <VesselDetail vessel={selectedVessel} nearby={nearby} />
       ) : selectedSatellite ? (
-        <SatelliteDetail satellite={selectedSatellite} position={selectedPosition} constellation={constellation} colorHex={colorHex} epochAge={epochAge} nearby={nearby} />
+        <SatelliteDetail satellite={selectedSatellite} position={selectedPosition} constellation={constellation} epochAge={epochAge} nearby={nearby} />
       ) : selectionPending ? (
-        <div className="flex-1 flex items-center justify-center">
+        <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
-            <div className="inline-block w-5 h-5 border-2 border-zinc-700 border-t-orange-400 rounded-full animate-spin mb-3" />
-            <p className="font-mono text-[11px] text-zinc-500">Loading entity data...</p>
+            <div className="mb-3 inline-block size-5 border-2 border-line-muted border-t-signal motion-safe:animate-spin" aria-hidden="true" />
+            <p className="font-mono text-[11px] text-muted-foreground">Loading entity data...</p>
           </div>
         </div>
       ) : (
@@ -223,9 +223,9 @@ function IntelligenceFeed() {
   const incidents = useIncidents()
 
   const severityColor = (sev: string) => {
-    if (sev === 'critical') return 'text-red-400 border-l-red-500'
-    if (sev === 'warning') return 'text-yellow-400 border-l-yellow-500'
-    return 'text-blue-400 border-l-blue-500'
+    if (sev === 'critical') return 'text-danger border-l-danger'
+    if (sev === 'warning') return 'text-warning border-l-warning'
+    return 'text-info border-l-info'
   }
 
   const sortedPosts = useMemo(() => {
@@ -237,28 +237,30 @@ function IntelligenceFeed() {
   }, [version, posts, platformToggles])
 
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
+    <div className="neo-scrollbar flex-1 overflow-y-auto">
       {/* Alerts section */}
-      <div className="border-b border-zinc-800">
-        <div className="px-3.5 py-2 border-b border-zinc-800 flex items-center justify-between">
+      <div className="border-b border-line">
+        <div className="flex min-h-10 items-center justify-between border-b border-line-muted px-3.5 py-2">
           <div className="flex items-center gap-2">
-            <span className="font-display text-[11px] font-semibold tracking-[2px] text-zinc-500 uppercase">Alerts</span>
+            <span className="neo-kicker text-muted-foreground">Alerts</span>
             {unackCount > 0 && (
-              <span className="bg-red-500 text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
+              <span className="inline-flex min-h-5 min-w-5 items-center justify-center border border-danger bg-danger px-1 font-mono text-[8px] font-bold text-background" aria-label={`${unackCount} unacknowledged alerts`}>
                 {unackCount > 99 ? '99' : unackCount}
               </span>
             )}
           </div>
           <div className="flex items-center gap-2">
             {alerts.length > 0 && (
-              <button onClick={acknowledgeAll} className="font-mono text-[10px] text-zinc-600 hover:text-zinc-400 uppercase tracking-wider">Ack All</button>
+              <button onClick={acknowledgeAll} className="min-h-9 border border-transparent px-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:border-line-muted hover:text-foreground">Ack All</button>
             )}
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => setShowRuleEditor(prev => !prev)}
-                    className="text-zinc-600 hover:text-orange-400 text-sm font-mono leading-none transition-colors"
+                    aria-label="Add alert rule"
+                    aria-expanded={showRuleEditor}
+                    className="grid size-9 place-items-center border border-line-muted bg-background font-mono text-sm leading-none text-muted-foreground transition-colors hover:bg-signal hover:text-signal-foreground"
                   >
                     +
                   </button>
@@ -269,13 +271,13 @@ function IntelligenceFeed() {
           </div>
         </div>
         {showRuleEditor && (
-          <div className="px-3 py-2 border-b border-zinc-800">
+          <div className="border-b border-line-muted p-3">
             <AlertRuleEditor onClose={() => setShowRuleEditor(false)} />
           </div>
         )}
         {alerts.length === 0 ? (
-          <div className="py-6 text-center">
-            <p className="text-[11px] text-zinc-600 font-mono">No alerts</p>
+          <div className="bg-background py-6 text-center">
+            <p className="font-mono text-[11px] text-muted-foreground">No alerts.</p>
           </div>
         ) : (
           alerts.map(a => (
@@ -294,14 +296,14 @@ function IntelligenceFeed() {
                 }
               }}
               className={cn(
-                'w-full text-left px-3.5 py-2 border-b border-zinc-800/50 border-l-2 transition-colors',
+                'w-full border-b border-l-2 border-b-line-muted px-3.5 py-2 text-left transition-colors',
                 severityColor(a.severity),
-                a.acknowledged ? 'opacity-40' : 'hover:bg-zinc-800/30',
+                a.acknowledged ? 'opacity-40' : 'hover:bg-panel-raised',
               )}
             >
               <div className="font-mono text-[11px] font-medium">{a.title}</div>
-              <div className="font-mono text-[10px] text-zinc-500 mt-0.5 truncate">{a.description}</div>
-              <div className="font-mono text-[9px] text-zinc-600 mt-0.5 uppercase">
+              <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{a.description}</div>
+              <div className="mt-0.5 font-mono text-[9px] uppercase text-muted-foreground">
                 {a.domain} — {new Date(a.time).toISOString().slice(11, 19)}Z
               </div>
             </button>
@@ -312,21 +314,21 @@ function IntelligenceFeed() {
 
       {/* Correlated incidents section */}
       {incidents.length > 0 && (
-        <div className="border-b border-zinc-800">
-          <div className="px-3.5 py-2 border-b border-zinc-800 flex items-center gap-2">
-            <span className="font-display text-[11px] font-semibold tracking-[2px] text-amber-400 uppercase">Incidents</span>
-            <span className="font-mono text-[10px] text-zinc-600">{incidents.length}</span>
+        <div className="border-b border-line">
+          <div className="flex min-h-10 items-center gap-2 border-b border-line-muted px-3.5 py-2">
+            <span className="neo-kicker text-warning">Incidents</span>
+            <span className="neo-data text-[10px] text-muted-foreground">{incidents.length}</span>
           </div>
           {incidents.slice(0, 10).map(inc => (
             <div
               key={inc.id}
-              className="px-3.5 py-2 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors"
+              className="border-b border-line-muted px-3.5 py-2 transition-colors hover:bg-panel-raised"
             >
               <div className="flex items-center gap-1.5">
-                <span className="font-mono text-[11px] font-medium text-zinc-300">
+                <span className="font-mono text-[11px] font-medium text-foreground">
                   {inc.events.length} events correlated
                 </span>
-                <span className="font-mono text-[9px] text-zinc-600">
+                <span className="font-mono text-[9px] text-muted-foreground">
                   {inc.sourceCount} sources
                 </span>
               </div>
@@ -335,12 +337,12 @@ function IntelligenceFeed() {
                   <span
                     key={d}
                     className={cn(
-                      'font-mono text-[8px] uppercase tracking-wider px-1 py-px rounded-sm border',
-                      d === 'conflict' ? 'text-red-400 border-red-800/60 bg-red-950/40'
-                        : d === 'weather' ? 'text-amber-400 border-amber-800/60 bg-amber-950/40'
-                        : d === 'cyber' ? 'text-purple-400 border-purple-800/60 bg-purple-950/40'
-                        : d === 'news' ? 'text-rose-400 border-rose-800/60 bg-rose-950/40'
-                        : 'text-zinc-400 border-zinc-700/60 bg-zinc-800/40',
+                      'border bg-background px-1 py-0.5 font-mono text-[8px] uppercase tracking-wider',
+                      d === 'conflict' ? 'border-domain-conflict text-domain-conflict'
+                        : d === 'weather' ? 'border-domain-weather text-domain-weather'
+                        : d === 'cyber' ? 'border-domain-cyber text-domain-cyber'
+                        : d === 'news' ? 'border-domain-news text-domain-news'
+                        : 'border-line-muted text-muted-foreground',
                     )}
                   >
                     {d}
@@ -349,12 +351,12 @@ function IntelligenceFeed() {
               </div>
               <div className="mt-1 space-y-0.5">
                 {inc.events.slice(0, 3).map(e => (
-                  <div key={`${e.domain}-${e.id}`} className="font-mono text-[10px] text-zinc-500 truncate">
+                  <div key={`${e.domain}-${e.id}`} className="truncate font-mono text-[10px] text-muted-foreground">
                     {e.title}
                   </div>
                 ))}
                 {inc.events.length > 3 && (
-                  <div className="font-mono text-[10px] text-zinc-600">+{inc.events.length - 3} more</div>
+                  <div className="font-mono text-[10px] text-muted-foreground">+{inc.events.length - 3} more</div>
                 )}
               </div>
             </div>
@@ -364,33 +366,32 @@ function IntelligenceFeed() {
 
       {/* OSINT feed section */}
       <div>
-        <div className="px-3.5 py-2 border-b border-zinc-800 flex items-center gap-2">
-          <span className="font-display text-[11px] font-semibold tracking-[2px] text-teal-400 uppercase">OSINT</span>
-          <span className="font-mono text-[10px] text-zinc-600">{count}</span>
+        <div className="flex min-h-10 items-center gap-2 border-b border-line-muted px-3.5 py-2">
+          <span className="neo-kicker text-domain-osint">OSINT</span>
+          <span className="neo-data text-[10px] text-muted-foreground">{count}</span>
         </div>
         {sortedPosts.length === 0 ? (
-          <div className="py-6 text-center">
-            <p className="text-[11px] text-zinc-600 font-mono">{count === 0 ? 'Loading OSINT...' : 'No geolocated posts'}</p>
+          <div className="bg-background py-6 text-center">
+            <p className={cn('font-mono text-[11px] text-muted-foreground', count === 0 && 'motion-safe:animate-pulse-signal')}>{count === 0 ? 'Loading OSINT...' : 'No geolocated posts.'}</p>
           </div>
         ) : (
           sortedPosts.map(post => (
             <button
               key={post.id}
               onClick={() => setOsintModalPost(post)}
-              className="block w-full text-left px-3.5 py-2 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors cursor-pointer"
+              className="block min-h-10 w-full border-b border-line-muted px-3.5 py-2 text-left transition-colors hover:bg-panel-raised"
             >
               <div className="flex items-center gap-1.5 mb-0.5">
                 <span className={cn(
-                  'font-mono text-[9px] uppercase tracking-wider px-1 rounded',
-                  OSINT_PLATFORM_COLORS[post.platform],
+                  'border border-domain-osint px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider text-domain-osint',
                 )}>
                   {post.platform.slice(0, 3)}
                 </span>
-                <span className="font-mono text-[10px] text-zinc-600">{post.author}</span>
-                <span className="font-mono text-[9px] text-zinc-700 ml-auto">{post.locationName}</span>
+                <span className="font-mono text-[10px] text-muted-foreground">{post.author}</span>
+                <span className="ml-auto font-mono text-[9px] text-muted-foreground">{post.locationName}</span>
               </div>
-              <div className="font-mono text-[11px] text-zinc-400 truncate">{post.text}</div>
-              <div className="font-mono text-[9px] text-zinc-600 mt-0.5">
+              <div className="truncate font-mono text-[11px] text-foreground">{post.text}</div>
+              <div className="mt-0.5 font-mono text-[9px] text-muted-foreground">
                 {new Date(post.time).toISOString().slice(11, 19)}Z
               </div>
             </button>
@@ -405,16 +406,16 @@ function IntelligenceFeed() {
 function NearbyEntities({ nearby }: { nearby: CorrelatedEntity[] }) {
   if (nearby.length === 0) return null
   return (
-    <div className="px-3.5 py-3 border-b border-zinc-800">
-      <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Nearby Entities</div>
+    <div className="border-b border-line-muted px-3.5 py-3">
+      <div className="neo-kicker mb-2 text-muted-foreground">Nearby Entities</div>
       <div className="space-y-1.5">
         {nearby.map(e => (
           <div key={e.id} className="flex items-center gap-2">
-            <span className={cn('font-mono text-[10px] uppercase w-7', DOMAIN_COLORS_MAP[e.domain] ?? 'text-zinc-400')}>
+            <span className={cn('w-7 font-mono text-[10px] uppercase', DOMAIN_COLORS_MAP[e.domain] ?? 'text-muted-foreground')}>
               {e.domain.slice(0, 3)}
             </span>
-            <span className="font-mono text-[11px] text-zinc-400 truncate flex-1">{e.name}</span>
-            <span className="font-mono text-[10px] text-zinc-600">{e.distance.toFixed(0)}km</span>
+            <span className="flex-1 truncate font-mono text-[11px] text-foreground">{e.name}</span>
+            <span className="neo-data text-[10px] text-muted-foreground">{e.distance.toFixed(0)}km</span>
           </div>
         ))}
       </div>
@@ -424,28 +425,27 @@ function NearbyEntities({ nearby }: { nearby: CorrelatedEntity[] }) {
 
 function NewsDetail({ event, nearby }: { event: NewsEvent; nearby: CorrelatedEntity[] }) {
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-sm font-bold tracking-wide text-zinc-50">{event.title}</div>
+    <div className="neo-scrollbar flex-1 overflow-y-auto">
+      <div className="border-b border-line px-3.5 py-3">
+        <div className="font-display text-sm font-bold tracking-wide text-foreground">{event.title}</div>
         <div className="flex items-center gap-2 mt-1.5">
           <SourceBadge source={event.source} />
           <span className={cn(
-            'font-display text-[13px] font-semibold tracking-[1px] uppercase px-1.5 py-0.5 rounded-sm border',
-            NEWS_CATEGORY_COLORS[event.category] || NEWS_CATEGORY_COLORS.other,
+            'border border-domain-news bg-background px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-domain-news',
           )}>{event.category}</span>
         </div>
       </div>
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Position</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">Position</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Latitude" value={`${Math.abs(event.lat).toFixed(4)}°${event.lat >= 0 ? 'N' : 'S'}`} />
           <DetailRow label="Longitude" value={`${Math.abs(event.lon).toFixed(4)}°${event.lon >= 0 ? 'E' : 'W'}`} />
         </div>
       </div>
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Analysis</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">Analysis</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Tone" value={event.tone.toFixed(1)} warn={event.tone < -5} />
           <DetailRow label="Articles" value={String(event.articleCount)} />
@@ -454,8 +454,8 @@ function NewsDetail({ event, nearby }: { event: NewsEvent; nearby: CorrelatedEnt
       </div>
 
       {event.url && (
-        <div className="px-3.5 py-3 border-b border-zinc-800">
-          <a href={event.url} target="_blank" rel="noopener noreferrer" className="font-mono text-[11px] text-orange-400 hover:underline break-all">
+        <div className="border-b border-line-muted px-3.5 py-3">
+          <a href={event.url} target="_blank" rel="noopener noreferrer" className="break-all font-mono text-[11px] text-signal underline decoration-line-muted underline-offset-4 hover:decoration-signal">
             View source article
           </a>
         </div>
@@ -468,28 +468,27 @@ function NewsDetail({ event, nearby }: { event: NewsEvent; nearby: CorrelatedEnt
 
 function ConflictDetail({ event, nearby }: { event: ConflictEvent; nearby: CorrelatedEntity[] }) {
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-sm font-bold tracking-wide text-zinc-50">{event.title}</div>
+    <div className="neo-scrollbar flex-1 overflow-y-auto">
+      <div className="border-b border-line px-3.5 py-3">
+        <div className="font-display text-sm font-bold tracking-wide text-foreground">{event.title}</div>
         <div className="flex items-center gap-2 mt-1.5">
           <SourceBadge source={event.source} />
           <span className={cn(
-            'font-display text-[13px] font-semibold tracking-[1px] uppercase px-1.5 py-0.5 rounded-sm border',
-            CONFLICT_TYPE_COLORS[event.type] || CONFLICT_TYPE_COLORS.violence,
+            'border border-domain-conflict bg-background px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-domain-conflict',
           )}>{event.type}</span>
         </div>
       </div>
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Position</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">Position</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Latitude" value={`${Math.abs(event.lat).toFixed(4)}°${event.lat >= 0 ? 'N' : 'S'}`} />
           <DetailRow label="Longitude" value={`${Math.abs(event.lon).toFixed(4)}°${event.lon >= 0 ? 'E' : 'W'}`} />
         </div>
       </div>
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Details</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">Details</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Fatalities" value={String(event.fatalities)} warn={event.fatalities > 0} />
           <DetailRow label="Event Time" value={new Date(event.time).toISOString().slice(0, 16).replace('T', ' ') + 'Z'} />
@@ -497,18 +496,18 @@ function ConflictDetail({ event, nearby }: { event: ConflictEvent; nearby: Corre
       </div>
 
       {event.actors.length > 0 && (
-        <div className="px-3.5 py-3 border-b border-zinc-800">
-          <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Actors</div>
+        <div className="border-b border-line-muted px-3.5 py-3">
+          <div className="neo-kicker mb-2 text-muted-foreground">Actors</div>
           {event.actors.map((actor, i) => (
-            <div key={i} className="font-mono text-[12px] text-zinc-400 mt-1">{actor}</div>
+            <div key={i} className="mt-1 font-mono text-[12px] text-foreground">{actor}</div>
           ))}
         </div>
       )}
 
       {event.description && (
-        <div className="px-3.5 py-3 border-b border-zinc-800">
-          <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Description</div>
-          <p className="font-mono text-[11px] text-zinc-400 leading-relaxed whitespace-pre-wrap">{event.description.slice(0, 500)}</p>
+        <div className="border-b border-line-muted px-3.5 py-3">
+          <div className="neo-kicker mb-2 text-muted-foreground">Description</div>
+          <p className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-muted-foreground">{event.description.slice(0, 500)}</p>
         </div>
       )}
 
@@ -519,28 +518,27 @@ function ConflictDetail({ event, nearby }: { event: ConflictEvent; nearby: Corre
 
 function CyberDetail({ event, nearby }: { event: CyberEvent; nearby: CorrelatedEntity[] }) {
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-sm font-bold tracking-wide text-zinc-50">{event.title}</div>
+    <div className="neo-scrollbar flex-1 overflow-y-auto">
+      <div className="border-b border-line px-3.5 py-3">
+        <div className="font-display text-sm font-bold tracking-wide text-foreground">{event.title}</div>
         <div className="flex items-center gap-2 mt-1.5">
           <SourceBadge source={event.source} />
           <span className={cn(
-            'font-display text-[13px] font-semibold tracking-[1px] uppercase px-1.5 py-0.5 rounded-sm border',
-            CYBER_TYPE_COLORS[event.type] || CYBER_TYPE_COLORS.vulnerability,
+            'border border-domain-cyber bg-background px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-domain-cyber',
           )}>{event.type}</span>
         </div>
       </div>
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Position</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">Position</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Latitude" value={`${Math.abs(event.lat).toFixed(4)}°${event.lat >= 0 ? 'N' : 'S'}`} />
           <DetailRow label="Longitude" value={`${Math.abs(event.lon).toFixed(4)}°${event.lon >= 0 ? 'E' : 'W'}`} />
         </div>
       </div>
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Threat Details</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">Threat Details</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Severity" value={`${event.severity}/10`} warn={event.severity >= 7} />
           {event.ip && <DetailRow label="IP Address" value={event.ip} />}
@@ -549,9 +547,9 @@ function CyberDetail({ event, nearby }: { event: CyberEvent; nearby: CorrelatedE
       </div>
 
       {event.description && (
-        <div className="px-3.5 py-3 border-b border-zinc-800">
-          <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Description</div>
-          <p className="font-mono text-[11px] text-zinc-400 leading-relaxed whitespace-pre-wrap">{event.description.slice(0, 500)}</p>
+        <div className="border-b border-line-muted px-3.5 py-3">
+          <div className="neo-kicker mb-2 text-muted-foreground">Description</div>
+          <p className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-muted-foreground">{event.description.slice(0, 500)}</p>
         </div>
       )}
 
@@ -565,17 +563,17 @@ function RFDetail({ spot, nearby }: { spot: RFSpot; nearby: CorrelatedEntity[] }
   const band = spot.frequency < 30_000_000 ? 'HF' : spot.frequency < 300_000_000 ? 'VHF' : 'UHF+'
 
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-sm font-bold tracking-wide text-zinc-50">{spot.txCall} → {spot.rxCall}</div>
+    <div className="neo-scrollbar flex-1 overflow-y-auto">
+      <div className="border-b border-line px-3.5 py-3">
+        <div className="font-display text-sm font-bold tracking-wide text-foreground">{spot.txCall} → {spot.rxCall}</div>
         <div className="flex items-center gap-2 mt-1.5">
-          <span className="font-mono text-[12px] text-zinc-500">{spot.mode}</span>
+          <span className="font-mono text-[12px] text-muted-foreground">{spot.mode}</span>
           <SourceBadge source={spot.source} />
         </div>
       </div>
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Signal</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">Signal</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Frequency" value={`${freqMHz} MHz`} />
           <DetailRow label="Band" value={band} />
@@ -584,8 +582,8 @@ function RFDetail({ spot, nearby }: { spot: RFSpot; nearby: CorrelatedEntity[] }
         </div>
       </div>
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Transmitter</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">Transmitter</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Callsign" value={spot.txCall} />
           <DetailRow label="Latitude" value={spot.txLat !== 0 ? `${Math.abs(spot.txLat).toFixed(4)}°${spot.txLat >= 0 ? 'N' : 'S'}` : 'N/A'} />
@@ -593,8 +591,8 @@ function RFDetail({ spot, nearby }: { spot: RFSpot; nearby: CorrelatedEntity[] }
         </div>
       </div>
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Receiver</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">Receiver</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Callsign" value={spot.rxCall} />
           <DetailRow label="Latitude" value={spot.rxLat !== 0 ? `${Math.abs(spot.rxLat).toFixed(4)}°${spot.rxLat >= 0 ? 'N' : 'S'}` : 'N/A'} />
@@ -608,6 +606,7 @@ function RFDetail({ spot, nearby }: { spot: RFSpot; nearby: CorrelatedEntity[] }
 }
 
 function WeatherEventDetail({ event, nearby }: { event: WeatherEvent; nearby: CorrelatedEntity[] }) {
+  const now = useNow()
   const [conditions, setConditions] = useState<{
     current?: {
       temperature_2m?: number
@@ -622,8 +621,10 @@ function WeatherEventDetail({ event, nearby }: { event: WeatherEvent; nearby: Co
   const [conditionsLoading, setConditionsLoading] = useState(false)
 
   useEffect(() => {
-    setConditions(null)
-    setConditionsLoading(true)
+    queueMicrotask(() => {
+      setConditions(null)
+      setConditionsLoading(true)
+    })
     fetch(`/api/weather/conditions?lat=${event.lat}&lon=${event.lon}`)
       .then(r => r.ok ? r.json() : null)
       .then(data => setConditions(data))
@@ -632,28 +633,27 @@ function WeatherEventDetail({ event, nearby }: { event: WeatherEvent; nearby: Co
   }, [event.id, event.lat, event.lon])
 
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-sm font-bold tracking-wide text-zinc-50">{event.title}</div>
+    <div className="neo-scrollbar flex-1 overflow-y-auto">
+      <div className="border-b border-line px-3.5 py-3">
+        <div className="font-display text-sm font-bold tracking-wide text-foreground">{event.title}</div>
         <div className="flex items-center gap-2 mt-1.5">
           <SourceBadge source={event.source} />
           <span className={cn(
-            'font-display text-[13px] font-semibold tracking-[1px] uppercase px-1.5 py-0.5 rounded-sm border',
-            WEATHER_TYPE_COLORS[event.type] || WEATHER_TYPE_COLORS.alert,
+            'border border-domain-weather bg-background px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-domain-weather',
           )}>{event.type}</span>
         </div>
       </div>
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Position</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">Position</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Latitude" value={`${Math.abs(event.lat).toFixed(4)}°${event.lat >= 0 ? 'N' : 'S'}`} />
           <DetailRow label="Longitude" value={`${Math.abs(event.lon).toFixed(4)}°${event.lon >= 0 ? 'E' : 'W'}`} />
         </div>
       </div>
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Event Details</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">Event Details</div>
         <div className="grid grid-cols-2 gap-2">
           {event.magnitude !== null && (
             <DetailRow label="Magnitude" value={`M${event.magnitude.toFixed(1)}`} warn={event.magnitude >= 5.0} />
@@ -664,7 +664,7 @@ function WeatherEventDetail({ event, nearby }: { event: WeatherEvent; nearby: Co
             <DetailRow
               label="Expires"
               value={new Date(event.expires).toISOString().slice(0, 16).replace('T', ' ') + 'Z'}
-              warn={event.expires < Date.now() + 3600_000}
+              warn={event.expires < now + 3600_000}
             />
           )}
           <DetailRow label="Last Update" value={new Date(event.lastUpdate).toISOString().slice(11, 19) + 'Z'} />
@@ -672,16 +672,16 @@ function WeatherEventDetail({ event, nearby }: { event: WeatherEvent; nearby: Co
       </div>
 
       {event.description && (
-        <div className="px-3.5 py-3 border-b border-zinc-800">
-          <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Description</div>
-          <p className="font-mono text-[11px] text-zinc-400 leading-relaxed whitespace-pre-wrap">{event.description.slice(0, 500)}</p>
+        <div className="border-b border-line-muted px-3.5 py-3">
+          <div className="neo-kicker mb-2 text-muted-foreground">Description</div>
+          <p className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-muted-foreground">{event.description.slice(0, 500)}</p>
         </div>
       )}
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Local Conditions</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">Local Conditions</div>
         {conditionsLoading ? (
-          <div className="font-mono text-[12px] text-zinc-600 animate-pulse">Loading conditions...</div>
+          <div className="font-mono text-[12px] text-muted-foreground motion-safe:animate-pulse-signal">Loading conditions...</div>
         ) : conditions?.current ? (
           <div className="grid grid-cols-2 gap-2">
             {conditions.current.temperature_2m != null && (
@@ -704,7 +704,7 @@ function WeatherEventDetail({ event, nearby }: { event: WeatherEvent; nearby: Co
             )}
           </div>
         ) : (
-          <div className="font-mono text-[12px] text-zinc-600">No conditions available</div>
+          <div className="font-mono text-[12px] text-muted-foreground">No conditions available.</div>
         )}
       </div>
 
@@ -719,25 +719,25 @@ function FlightDetail({ flight, flightInfo, flightInfoLoading, nearby }: {
   flightInfoLoading: boolean
   nearby: CorrelatedEntity[]
 }) {
+  const now = useNow()
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
-      {flightInfo.imageUrl && <AircraftImage url={flightInfo.imageUrl} alt={flight.callsign} />}
+    <div className="neo-scrollbar flex-1 overflow-y-auto">
+      {flightInfo.imageUrl && <AircraftImage key={flightInfo.imageUrl} url={flightInfo.imageUrl} alt={flight.callsign} />}
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-sm font-bold tracking-wide text-zinc-50">{flight.callsign}</div>
+      <div className="border-b border-line px-3.5 py-3">
+        <div className="font-display text-sm font-bold tracking-wide text-foreground">{flight.callsign}</div>
         <div className="flex items-center gap-2 mt-1.5">
-          <span className="font-mono text-[12px] text-zinc-500">ICAO {flight.icao24.toUpperCase()}</span>
+          <span className="neo-data text-[12px] text-muted-foreground">ICAO {flight.icao24.toUpperCase()}</span>
           <span className={cn(
-            'font-display text-[13px] font-semibold tracking-[1px] uppercase px-1.5 py-0.5 rounded-sm border',
-            FLIGHT_TYPE_COLORS[flight.type] || FLIGHT_TYPE_COLORS.other,
+            'border border-domain-flight bg-background px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-domain-flight',
           )}>{flight.type}</span>
         </div>
-        {flight.originCountry && <div className="font-mono text-[12px] text-zinc-500 mt-1">{flight.originCountry}</div>}
+        {flight.originCountry && <div className="mt-1 font-mono text-[12px] text-muted-foreground">{flight.originCountry}</div>}
       </div>
 
       {flightInfo.aircraft && (
-        <div className="px-3.5 py-3 border-b border-zinc-800">
-          <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Aircraft</div>
+        <div className="border-b border-line-muted px-3.5 py-3">
+          <div className="neo-kicker mb-2 text-muted-foreground">Aircraft</div>
           <div className="grid grid-cols-2 gap-2">
             <DetailRow label="Registration" value={flightInfo.aircraft.Registration} />
             <DetailRow label="Type" value={flightInfo.aircraft.Type || flightInfo.aircraft.ICAOTypeCode} />
@@ -748,25 +748,25 @@ function FlightDetail({ flight, flightInfo, flightInfoLoading, nearby }: {
       )}
 
       {flightInfo.route && (
-        <div className="px-3.5 py-3 border-b border-zinc-800">
-          <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Route</div>
+        <div className="border-b border-line-muted px-3.5 py-3">
+          <div className="neo-kicker mb-2 text-muted-foreground">Route</div>
           <div className="flex items-center gap-2 mb-2">
-            <span className="font-mono text-[13px] text-yellow-400 font-bold">{flightInfo.route.route}</span>
+            <span className="neo-data text-[13px] font-bold text-domain-flight">{flightInfo.route.route}</span>
           </div>
           {flightInfo.origin && (
             <div className="mb-1.5">
-              <div className="font-mono text-[11px] text-zinc-600 uppercase">Origin</div>
-              <div className="font-mono text-[12px] text-zinc-300">{flightInfo.origin.airport}</div>
-              <div className="font-mono text-[11px] text-zinc-500">
+              <div className="neo-kicker text-muted-foreground">Origin</div>
+              <div className="font-mono text-[12px] text-foreground">{flightInfo.origin.airport}</div>
+              <div className="font-mono text-[11px] text-muted-foreground">
                 {flightInfo.origin.iata}/{flightInfo.origin.icao} — {flightInfo.origin.region_name}, {flightInfo.origin.country_code}
               </div>
             </div>
           )}
           {flightInfo.destination && (
             <div>
-              <div className="font-mono text-[11px] text-zinc-600 uppercase">Destination</div>
-              <div className="font-mono text-[12px] text-zinc-300">{flightInfo.destination.airport}</div>
-              <div className="font-mono text-[11px] text-zinc-500">
+              <div className="neo-kicker text-muted-foreground">Destination</div>
+              <div className="font-mono text-[12px] text-foreground">{flightInfo.destination.airport}</div>
+              <div className="font-mono text-[11px] text-muted-foreground">
                 {flightInfo.destination.iata}/{flightInfo.destination.icao} — {flightInfo.destination.region_name}, {flightInfo.destination.country_code}
               </div>
             </div>
@@ -775,13 +775,13 @@ function FlightDetail({ flight, flightInfo, flightInfoLoading, nearby }: {
       )}
 
       {flightInfoLoading && !flightInfo.aircraft && (
-        <div className="px-3.5 py-3 border-b border-zinc-800">
-          <div className="font-mono text-[12px] text-zinc-600 animate-pulse">Loading aircraft data...</div>
+        <div className="border-b border-line-muted px-3.5 py-3">
+          <div className="font-mono text-[12px] text-muted-foreground motion-safe:animate-pulse-signal">Loading aircraft data...</div>
         </div>
       )}
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Position</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">Position</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Latitude" value={`${Math.abs(flight.lat).toFixed(4)}°${flight.lat >= 0 ? 'N' : 'S'}`} />
           <DetailRow label="Longitude" value={`${Math.abs(flight.lon).toFixed(4)}°${flight.lon >= 0 ? 'E' : 'W'}`} />
@@ -789,8 +789,8 @@ function FlightDetail({ flight, flightInfo, flightInfoLoading, nearby }: {
         </div>
       </div>
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Movement</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">Movement</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Speed" value={`${(flight.speed * 1.94384).toFixed(0)} kn`} />
           <DetailRow label="Heading" value={`${flight.heading.toFixed(0)}°`} />
@@ -798,11 +798,11 @@ function FlightDetail({ flight, flightInfo, flightInfoLoading, nearby }: {
         </div>
       </div>
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">ADS-B Data</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">ADS-B Data</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Last Update" value={new Date(flight.lastUpdate).toISOString().slice(11, 19) + 'Z'} />
-          <DetailRow label="Age" value={`${Math.round((Date.now() - flight.lastUpdate) / 1000)}s`} />
+          <DetailRow label="Age" value={`${Math.round((now - flight.lastUpdate) / 1000)}s`} />
         </div>
       </div>
 
@@ -812,14 +812,18 @@ function FlightDetail({ flight, flightInfo, flightInfoLoading, nearby }: {
 }
 
 function VesselDetail({ vessel, nearby }: { vessel: VesselRecord; nearby: CorrelatedEntity[] }) {
+  const now = useNow()
   const [sanctions, setSanctions] = useState<SanctionMatch[]>([])
   const [sanctionsLoading, setSanctionsLoading] = useState(false)
 
   useEffect(() => {
-    setSanctions([])
     const name = vessel.name?.trim()
-    if (!name || name === String(vessel.mmsi)) return
-    setSanctionsLoading(true)
+    const shouldCheck = Boolean(name && name !== String(vessel.mmsi))
+    queueMicrotask(() => {
+      setSanctions([])
+      setSanctionsLoading(shouldCheck)
+    })
+    if (!name || !shouldCheck) return
     fetch(`/api/sanctions/check?q=${encodeURIComponent(name)}`)
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.matches) setSanctions(data.matches) })
@@ -827,28 +831,27 @@ function VesselDetail({ vessel, nearby }: { vessel: VesselRecord; nearby: Correl
       .finally(() => setSanctionsLoading(false))
   }, [vessel.mmsi, vessel.name])
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-sm font-bold tracking-wide text-zinc-50">{vessel.name}</div>
+    <div className="neo-scrollbar flex-1 overflow-y-auto">
+      <div className="border-b border-line px-3.5 py-3">
+        <div className="font-display text-sm font-bold tracking-wide text-foreground">{vessel.name}</div>
         <div className="flex items-center gap-2 mt-1.5">
-          <span className="font-mono text-[12px] text-zinc-500">MMSI {vessel.mmsi}</span>
+          <span className="neo-data text-[12px] text-muted-foreground">MMSI {vessel.mmsi}</span>
           <span className={cn(
-            'font-display text-[13px] font-semibold tracking-[1px] uppercase px-1.5 py-0.5 rounded-sm border',
-            VESSEL_TYPE_COLORS[vessel.type] || VESSEL_TYPE_COLORS.other,
+            'border border-domain-vessel bg-background px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-domain-vessel',
           )}>{vessel.type}</span>
         </div>
       </div>
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Current Position</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">Current Position</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Latitude" value={`${Math.abs(vessel.lat).toFixed(4)}°${vessel.lat >= 0 ? 'N' : 'S'}`} />
           <DetailRow label="Longitude" value={`${Math.abs(vessel.lon).toFixed(4)}°${vessel.lon >= 0 ? 'E' : 'W'}`} />
         </div>
       </div>
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Movement</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">Movement</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Speed (SOG)" value={`${vessel.speed.toFixed(1)} kn`} />
           <DetailRow label="Course (COG)" value={`${vessel.course.toFixed(1)}°`} />
@@ -857,28 +860,28 @@ function VesselDetail({ vessel, nearby }: { vessel: VesselRecord; nearby: Correl
         </div>
       </div>
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">AIS Data</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">AIS Data</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Last Update" value={new Date(vessel.lastUpdate).toISOString().slice(11, 19) + 'Z'} />
-          <DetailRow label="Age" value={`${Math.round((Date.now() - vessel.lastUpdate) / 1000)}s`} />
+          <DetailRow label="Age" value={`${Math.round((now - vessel.lastUpdate) / 1000)}s`} />
         </div>
       </div>
 
       {/* Sanctions check */}
       {sanctionsLoading && (
-        <div className="px-3.5 py-3 border-b border-zinc-800">
-          <div className="font-mono text-[12px] text-zinc-600 animate-pulse">Checking sanctions...</div>
+        <div className="border-b border-line-muted px-3.5 py-3">
+          <div className="font-mono text-[12px] text-muted-foreground motion-safe:animate-pulse-signal">Checking sanctions...</div>
         </div>
       )}
       {sanctions.length > 0 && (
-        <div className="px-3.5 py-3 border-b border-zinc-800 bg-red-950/20">
-          <div className="font-display text-[13px] font-bold tracking-[2px] text-red-400 uppercase mb-2">Sanctioned</div>
+        <div className="border-b border-danger bg-panel px-3.5 py-3">
+          <div className="neo-kicker mb-2 text-danger">Sanctioned</div>
           {sanctions.map(s => (
             <div key={s.id} className="mb-2">
-              <div className="font-mono text-[12px] text-red-300">{s.name}</div>
-              <div className="font-mono text-[10px] text-zinc-500">{s.datasets.slice(0, 3).join(', ')}</div>
-              <div className="font-mono text-[10px] text-zinc-600">Match: {(s.score * 100).toFixed(0)}%</div>
+              <div className="font-mono text-[12px] text-danger">{s.name}</div>
+              <div className="font-mono text-[10px] text-muted-foreground">{s.datasets.slice(0, 3).join(', ')}</div>
+              <div className="neo-data text-[10px] text-muted-foreground">Match: {(s.score * 100).toFixed(0)}%</div>
             </div>
           ))}
         </div>
@@ -889,32 +892,30 @@ function VesselDetail({ vessel, nearby }: { vessel: VesselRecord; nearby: Correl
   )
 }
 
-function SatelliteDetail({ satellite, position, constellation, colorHex, epochAge, nearby }: {
+function SatelliteDetail({ satellite, position, constellation, epochAge, nearby }: {
   satellite: SatelliteRecord
   position: SatellitePosition | null
   constellation: ConstellationMeta | null
-  colorHex: string
   epochAge: number | null
   nearby: CorrelatedEntity[]
 }) {
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700">
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-sm font-bold tracking-wide text-zinc-50">{satellite.name}</div>
+    <div className="neo-scrollbar flex-1 overflow-y-auto">
+      <div className="border-b border-line px-3.5 py-3">
+        <div className="font-display text-sm font-bold tracking-wide text-foreground">{satellite.name}</div>
         <div className="flex items-center gap-2 mt-1.5">
-          <span className="font-mono text-[12px] text-zinc-500">NORAD {satellite.noradId}</span>
+          <span className="neo-data text-[12px] text-muted-foreground">NORAD {satellite.noradId}</span>
           {constellation && (
             <span
-              className="font-display text-[13px] font-semibold tracking-[1px] uppercase px-1.5 py-0.5 rounded-sm border"
-              style={{ color: colorHex, borderColor: colorHex + '40', backgroundColor: colorHex + '15' }}
+              className="border border-domain-satellite bg-background px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-domain-satellite"
             >{constellation.name}</span>
           )}
         </div>
       </div>
 
       {position && (
-        <div className="px-3.5 py-3 border-b border-zinc-800">
-          <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Current Position</div>
+        <div className="border-b border-line-muted px-3.5 py-3">
+          <div className="neo-kicker mb-2 text-muted-foreground">Current Position</div>
           <div className="grid grid-cols-2 gap-2">
             <DetailRow label="Latitude" value={`${Math.abs(position.lat).toFixed(4)}°${position.lat >= 0 ? 'N' : 'S'}`} />
             <DetailRow label="Longitude" value={`${Math.abs(position.lon).toFixed(4)}°${position.lon >= 0 ? 'E' : 'W'}`} />
@@ -924,8 +925,8 @@ function SatelliteDetail({ satellite, position, constellation, colorHex, epochAg
         </div>
       )}
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">Orbital Parameters</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">Orbital Parameters</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Inclination" value={`${satellite.inclination.toFixed(2)}°`} />
           <DetailRow label="Period" value={`${satellite.period.toFixed(1)} min`} />
@@ -933,8 +934,8 @@ function SatelliteDetail({ satellite, position, constellation, colorHex, epochAg
         </div>
       </div>
 
-      <div className="px-3.5 py-3 border-b border-zinc-800">
-        <div className="font-display text-[13px] font-semibold tracking-[2px] text-zinc-600 uppercase mb-2">TLE Data</div>
+      <div className="border-b border-line-muted px-3.5 py-3">
+        <div className="neo-kicker mb-2 text-muted-foreground">TLE Data</div>
         <div className="grid grid-cols-2 gap-2">
           <DetailRow label="Epoch" value={satellite.epoch.toISOString().slice(0, 16).replace('T', ' ') + 'Z'} />
           <DetailRow label="Age" value={epochAge !== null ? `${epochAge}h` : '—'} warn={epochAge !== null && epochAge > 48} />
@@ -950,18 +951,13 @@ function AircraftImage({ url, alt }: { url: string; alt: string }) {
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState(false)
 
-  useEffect(() => {
-    setLoaded(false)
-    setError(false)
-  }, [url])
-
   if (error) return null
 
   return (
-    <div className="relative w-full border-b border-zinc-800 bg-zinc-950">
+    <div className="relative w-full border-b border-line bg-background">
       {!loaded && (
         <div className="h-32 flex items-center justify-center">
-          <div className="font-mono text-[11px] text-zinc-600 animate-pulse">Loading image...</div>
+          <div className="font-mono text-[11px] text-muted-foreground motion-safe:animate-pulse-signal">Loading image...</div>
         </div>
       )}
       <img
@@ -979,8 +975,8 @@ function AircraftImage({ url, alt }: { url: string; alt: string }) {
 function DetailRow({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
   return (
     <div>
-      <div className="font-mono text-[12px] text-zinc-600 tracking-wide uppercase">{label}</div>
-      <div className={cn('font-mono text-[13px] mt-0.5', warn ? 'text-yellow-400' : 'text-zinc-300')}>{value}</div>
+      <div className="neo-kicker text-muted-foreground">{label}</div>
+      <div className={cn('neo-data mt-0.5 text-[13px]', warn ? 'text-warning' : 'text-foreground')}>{value}</div>
     </div>
   )
 }

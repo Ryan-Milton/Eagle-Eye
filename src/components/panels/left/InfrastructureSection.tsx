@@ -3,9 +3,9 @@ import {
   useInfrastructureStore,
   INFRASTRUCTURE_LAYERS,
   INFRASTRUCTURE_LABELS,
-  INFRASTRUCTURE_COLORS,
   type InfrastructureLayerType,
 } from '@/stores/infrastructure-store'
+import { TypeToggle } from './shared'
 
 const LAYER_ICONS: Record<InfrastructureLayerType, string> = {
   cables: '〰',
@@ -25,35 +25,27 @@ export function InfrastructureSection({ expanded, onToggle }: { expanded: boolea
         tabIndex={0}
         onClick={onToggle}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
-        className="w-full flex items-center gap-2 px-3.5 py-2.5 border-b border-zinc-800 hover:bg-zinc-800/30 transition-colors cursor-pointer"
+        aria-expanded={expanded}
+        className="flex min-h-10 w-full items-center gap-2 border-b border-line-muted px-3.5 transition-colors hover:bg-panel-raised"
       >
-        <span className="text-[11px] text-zinc-600">{expanded ? '▾' : '▸'}</span>
-        <span className="font-display text-[12px] font-semibold tracking-[2px] text-emerald-400 uppercase flex-1 text-left">Infrastructure</span>
-        <span className={cn('inline-block w-1.5 h-1.5 rounded-full mr-1', enabledCount > 0 ? 'bg-emerald-400' : 'bg-zinc-600')} />
-        <span className="font-mono text-[11px] text-zinc-500">{enabledCount}/{INFRASTRUCTURE_LAYERS.length}</span>
+        <span className="text-[11px] text-muted-foreground" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+        <span className="neo-kicker flex-1 text-left text-domain-infrastructure">Infrastructure</span>
+        <span className={cn('neo-data text-[9px] uppercase', enabledCount > 0 ? 'text-success' : 'text-muted-foreground')}>{enabledCount > 0 ? 'On' : 'Off'}</span>
+        <span className="neo-data text-[11px] text-muted-foreground">{enabledCount}/{INFRASTRUCTURE_LAYERS.length}</span>
       </div>
 
       {expanded && (
-        <div className="border-b border-zinc-800">
+        <div className="border-b border-line-muted bg-background">
           {INFRASTRUCTURE_LAYERS.map(layer => {
             const enabled = toggles.get(layer) ?? false
-            const color = INFRASTRUCTURE_COLORS[layer]
-
             return (
               <div
                 key={layer}
-                className="flex items-center gap-2 pl-5 pr-3 py-1.5 border-b border-zinc-800/20 hover:bg-zinc-800/20 transition-colors"
+                className="flex min-h-10 items-center gap-2 border-b border-line-muted py-1 pl-5 pr-1 transition-colors hover:bg-panel-raised"
               >
-                <span className="text-[12px] w-4 text-center" style={{ color }}>{LAYER_ICONS[layer]}</span>
-                <span className="font-mono text-[11px] text-zinc-400 flex-1">{INFRASTRUCTURE_LABELS[layer]}</span>
-                <button
-                  onClick={() => toggle(layer)}
-                  className={cn('w-4 h-4 rounded border flex items-center justify-center text-[10px]',
-                    enabled ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400' : 'border-zinc-600 text-zinc-600'
-                  )}
-                >
-                  {enabled ? '✓' : ''}
-                </button>
+                <span className="w-4 text-center text-[12px] text-domain-infrastructure">{LAYER_ICONS[layer]}</span>
+                <span className="flex-1 font-mono text-[11px] text-foreground">{INFRASTRUCTURE_LABELS[layer]}</span>
+                <TypeToggle on={enabled} color="var(--domain-infrastructure)" label={INFRASTRUCTURE_LABELS[layer]} onClick={() => toggle(layer)} />
               </div>
             )
           })}

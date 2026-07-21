@@ -7,12 +7,12 @@ export function PipelineError({ errors }: { errors: string[] }) {
     <TooltipProvider delayDuration={200}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className="relative flex-shrink-0 cursor-help">
+          <span className="inline-flex min-h-5 flex-shrink-0 cursor-help items-center gap-1 border border-warning px-1 font-mono text-[9px] font-bold uppercase text-warning" role="status" aria-label={`${errors.length} pipeline issue${errors.length > 1 ? 's' : ''}`}>
             <svg
               width="12"
               height="12"
               viewBox="0 0 12 12"
-              className="text-amber-400"
+              className="text-warning"
               fill="none"
             >
               <path
@@ -24,14 +24,15 @@ export function PipelineError({ errors }: { errors: string[] }) {
               />
               <text x="6" y="8.5" textAnchor="middle" fill="currentColor" fontSize="7" fontWeight="bold">!</text>
             </svg>
-          </div>
+            ERR
+          </span>
         </TooltipTrigger>
         <TooltipContent side="top" className="max-w-xs">
-          <div className="font-mono text-[10px] text-amber-400 font-semibold uppercase tracking-wide mb-1">
+          <div className="neo-kicker mb-1 text-warning">
             Pipeline Issue{errors.length > 1 ? 's' : ''}
           </div>
           {errors.map((err, i) => (
-            <div key={i} className="font-mono text-[11px] text-zinc-300 leading-relaxed">{err}</div>
+            <div key={i} className="font-mono text-[11px] leading-relaxed text-foreground">{err}</div>
           ))}
         </TooltipContent>
       </Tooltip>

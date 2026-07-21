@@ -32,7 +32,9 @@ export function AlertToastContainer() {
     lastAlertIdRef.current = latest.id
 
     // Add toast
-    setToasts(prev => [{ alert: latest, exiting: false }, ...prev].slice(0, MAX_TOASTS))
+    queueMicrotask(() => {
+      setToasts(prev => [{ alert: latest, exiting: false }, ...prev].slice(0, MAX_TOASTS))
+    })
 
     // Auto-dismiss
     setTimeout(() => removeToast(latest.id), TOAST_DURATION)
@@ -51,36 +53,38 @@ export function AlertToastContainer() {
   if (toasts.length === 0) return null
 
   return (
-    <div className="fixed top-14 right-72 z-[60] flex flex-col gap-2 pointer-events-none">
+    <div className="pointer-events-none fixed left-3 right-3 top-[4.75rem] z-[60] flex flex-col items-end gap-2 sm:left-auto xl:right-[18.75rem]" aria-live="polite">
       {toasts.map(toast => (
         <div
           key={toast.alert.id}
           className={cn(
-            'pointer-events-auto w-72 bg-zinc-900/95 backdrop-blur-sm border rounded-md shadow-xl px-3 py-2.5 transition-all duration-300',
+            'pointer-events-auto w-full max-w-72 border-l-4 border-y border-r bg-panel px-3 py-2.5 text-foreground shadow-hard transition-[opacity,transform] duration-300 motion-reduce:transition-none',
             toast.exiting ? 'opacity-0 translate-x-4' : 'opacity-100 translate-x-0',
-            toast.alert.severity === 'critical' ? 'border-red-500/50'
-              : toast.alert.severity === 'warning' ? 'border-yellow-500/50'
-              : 'border-blue-500/50',
+            toast.alert.severity === 'critical' ? 'border-danger'
+              : toast.alert.severity === 'warning' ? 'border-warning'
+              : 'border-info',
           )}
+          role="status"
         >
           <div className="flex items-start gap-2">
-            <div className={cn(
-              'w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0',
-              toast.alert.severity === 'critical' ? 'bg-red-400'
-                : toast.alert.severity === 'warning' ? 'bg-yellow-400'
-                : 'bg-blue-400',
-            )} />
+            <span className={cn(
+              'mt-0.5 border px-1 py-0.5 font-mono text-[8px] font-bold uppercase',
+              toast.alert.severity === 'critical' ? 'border-danger text-danger'
+                : toast.alert.severity === 'warning' ? 'border-warning text-warning'
+                : 'border-info text-info',
+            )}>{toast.alert.severity.slice(0, 4)}</span>
             <div className="flex-1 min-w-0">
-              <div className="font-mono text-[11px] font-medium text-zinc-200 truncate">
+              <div className="truncate font-mono text-[11px] font-bold text-foreground">
                 {toast.alert.title}
               </div>
-              <div className="font-mono text-[10px] text-zinc-500 mt-0.5 truncate">
+              <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
                 {toast.alert.description}
               </div>
             </div>
             <button
               onClick={() => removeToast(toast.alert.id)}
-              className="text-zinc-600 hover:text-zinc-300 text-[10px] font-mono flex-shrink-0"
+              aria-label={`Dismiss ${toast.alert.title}`}
+              className="grid size-9 flex-shrink-0 place-items-center border border-transparent font-mono text-[10px] text-muted-foreground hover:border-line hover:bg-background hover:text-foreground"
             >
               X
             </button>
